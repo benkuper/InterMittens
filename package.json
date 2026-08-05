@@ -6,7 +6,21 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"start": "node build",
+		"setup": "node scripts/setup-deploy.mjs",
+		"setup:deploy": "node scripts/setup-deploy.mjs",
+		"upload": "node scripts/deploy.mjs",
+		"deploy": "node scripts/deploy.mjs && node scripts/remote-runtime.mjs install && node scripts/remote-runtime.mjs restart",
+		"deploy:dry-run": "node scripts/deploy.mjs --dry-run",
+		"deploy:stage": "node scripts/deploy.mjs --stage-only",
+		"remote:start": "node scripts/remote-runtime.mjs start",
+		"remote:install": "node scripts/remote-runtime.mjs install",
+		"remote:restart": "node scripts/remote-runtime.mjs restart",
+		"remote:stop": "node scripts/remote-runtime.mjs stop",
+		"remote:status": "node scripts/remote-runtime.mjs status",
+		"publish": "npm run deploy",
 		"preview": "vite preview",
+		"test": "node scripts/test-document-analysis.mjs && node scripts/test-stats.mjs",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -15,13 +29,20 @@
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",
+		"@sveltejs/adapter-node": "^5.5.6",
 		"@sveltejs/kit": "^2.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@types/node": "^26.0.0",
 		"prettier": "^3.8.3",
 		"prettier-plugin-svelte": "^4.1.0",
+		"ssh2-sftp-client": "^12.1.1",
 		"svelte": "^5.56.1",
 		"svelte-check": "^4.6.0",
 		"typescript": "^6.0.3",
 		"vite": "^8.0.16"
+	},
+	"dependencies": {
+		"pdf-lib": "^1.17.1",
+		"pdfjs-dist": "^6.0.227"
 	}
 }

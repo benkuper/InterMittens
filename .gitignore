@@ -1,4 +1,12 @@
 node_modules
+/data/
+
+# Local deployment config and logs
+.env.local
+.env.deploy
+.deploy
+.vscode/sftp.json
+*.log
 
 # Output
 .output
@@ -21,3 +29,4 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+*.pdf

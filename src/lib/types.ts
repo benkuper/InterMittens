@@ -1,5 +1,12 @@
-export type ContractStatus = 'Estimation' | 'Signe' | 'Paye';
-export type DocumentKind = 'AEM' | 'Contrat' | 'Fiche de paie' | 'Autre';
+export type ContractStatus = 'Estimation' | 'Signé' | 'Payé';
+export type DocumentKind =
+	| 'AEM'
+	| 'Contrat'
+	| 'Fiche de paie'
+	| 'Congé Spectacle'
+	| 'Déclaration Guso'
+	| 'Notification ARE'
+	| 'Autre';
 
 export type Company = {
 	id: string;
@@ -9,8 +16,16 @@ export type Company = {
 	email: string;
 	phone: string;
 	address: string;
+	postalCode: string;
+	city: string;
+	siren: string;
 	siret: string;
 	ape: string;
+	legalCategory: string;
+	activityLabel: string;
+	color: string;
+	source: string;
+	sourceUpdatedAt: string;
 	notes: string;
 };
 
@@ -30,9 +45,12 @@ export type ContractDocument = {
 	contractId: string;
 	kind: DocumentKind;
 	fileName: string;
+	originalFileName: string;
 	storedName: string;
 	mimeType: string;
 	size: number;
+	pageStart: number;
+	pageEnd: number;
 	uploadedAt: string;
 	extractedTextPreview: string;
 	extractedFields: Partial<ContractFields>;
@@ -47,6 +65,7 @@ export type ContractFields = {
 	endDate: string;
 	hours: number;
 	cachets: number;
+	employmentStatus: string;
 	netSalary: number;
 	taxableNetSalary: number;
 	grossSalary: number;
@@ -64,25 +83,48 @@ export type Contract = ContractFields & {
 	updatedAt: string;
 };
 
+export type FutureContractAmountType = 'employerCost' | 'gross' | 'net';
+
 export type FutureContract = {
 	id: string;
-	label: string;
-	companyId: string;
-	projectName: string;
-	expectedStartDate: string;
-	expectedEndDate: string;
-	expectedHours: number;
-	expectedCachets: number;
-	expectedGrossSalary: number;
-	probability: number;
+	companyName: string;
+	amount: number;
+	amountType: FutureContractAmountType;
+	estimatedHours: number;
 	notes: string;
 };
 
 export type MonthlyInfo = {
 	month: string;
+	periodId: string;
 	congeSpectacle: number;
 	realIndemnity: number;
 	dailyIndemnity: number;
+	notes: string;
+};
+
+export type IntermittencePeriod = {
+	id: string;
+	label: string;
+	status: 'Estimation' | 'Notifie' | 'Archive';
+	admissionDate: string;
+	indemnizationStartDate: string;
+	anniversaryDate: string;
+	referenceStartDate: string;
+	referenceEndDate: string;
+	hours: number;
+	cachets: number;
+	grossSalary: number;
+	dailyAllowance: number;
+	waitingDays: number;
+	salaryFranchiseDays: number;
+	congeFranchiseDays: number;
+	sourceFileName: string;
+	sourceStoredName: string;
+	sourceTextPreview: string;
+	analysisNotes: string[];
+	createdAt: string;
+	updatedAt: string;
 	notes: string;
 };
 
@@ -99,6 +141,17 @@ export type AppSettings = {
 	monthlyShiftCoefficient: number;
 	pmss: number;
 	cumulPmssMultiplier: number;
+	transatEmail: string;
+	ghsApiBaseUrl: string;
+	ghsApiToken: string;
+	ghsSyncEnabled: boolean;
+	ghsLastSyncAt: string;
+	ghsLastSyncStatus: string;
+	activePeriodId: string;
+	remoteBaseUrl: string;
+	remoteSyncEnabled: boolean;
+	remoteLastSyncAt: string;
+	remoteLastSyncStatus: string;
 };
 
 export type AppData = {
@@ -108,6 +161,7 @@ export type AppData = {
 	projects: Project[];
 	contracts: Contract[];
 	documents: ContractDocument[];
+	periods: IntermittencePeriod[];
 	futureContracts: FutureContract[];
 	monthlyInfos: MonthlyInfo[];
 	settings: AppSettings;
@@ -133,4 +187,51 @@ export type MonthlyStats = {
 	congeSpectacle: number;
 	totalIncomeEstimated: number;
 	totalIncomeReal: number;
+};
+
+export type PeriodStats = {
+	monthCount: number;
+	hours: number;
+	cachets: number;
+	netSalary: number;
+	taxableNetSalary: number;
+	grossSalary: number;
+	contributions: number;
+	contributionRate: number;
+	netHourlyRate: number;
+	grossHourlyRate: number;
+	contractCount: number;
+	workedDaysEstimate: number;
+	estimatedIndemnity: number;
+	realIndemnity: number;
+	congeSpectacle: number;
+	totalIncomeEstimated: number;
+	totalIncomeReal: number;
+};
+
+export type CompanySearchResult = {
+	id: string;
+	score: number;
+	name: string;
+	legalName: string;
+	siren: string;
+	siret: string;
+	ape: string;
+	address: string;
+	postalCode: string;
+	city: string;
+	legalCategory: string;
+	activityLabel: string;
+	employeeRange: string;
+	isEmployer: boolean;
+	isAssociation: boolean;
+	isEntrepreneurSpectacle: boolean;
+	sourceUpdatedAt: string;
+	sourceUrl: string;
+};
+
+export type CompanySuggestion = {
+	contractId: string;
+	siret: string;
+	result: CompanySearchResult;
 };
