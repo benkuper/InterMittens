@@ -150,6 +150,14 @@ export function classifyDocumentKind(text: string, fallback: DocumentKind) {
 	}
 
 	if (
+		/\b(?:certificat\s+d['’]?emploi\s+les?\s+cong[eé]s?\s+spectacl(?:e|es)|cong[eé]s?\s+spectacl(?:e|es)|caisse\s+des?\s+cong[eé]s?|certificat\s+de\s+cong[eé]s?|attestation\s+de\s+cong[eé]s?\s+spectacl(?:e|es)|indemnit[eé]\s+de\s+cong[eé]s?)\b/.test(
+			normalized
+		)
+	) {
+		return 'Congé Spectacle' as const;
+	}
+
+	if (
 		/bulletin de paie|fiche de paie|net a payer|net imposable|cotisations salariales/.test(
 			normalized
 		)
@@ -163,14 +171,6 @@ export function classifyDocumentKind(text: string, fallback: DocumentKind) {
 		)
 	) {
 		return 'Contrat' as const;
-	}
-
-	if (
-		/certificat d emploi les conges spectacles|conges\s+spectacles|caisse\s+des\s+conges|certificat\s+conges|indemnite\s+de\s+conges/.test(
-			normalized
-		)
-	) {
-		return 'Congé Spectacle' as const;
 	}
 
 	return fallback;
@@ -587,6 +587,24 @@ function cleanInlineValue(value: string | undefined) {
 		.trim();
 }
 
+function isMovinmotionPayroll(text: string) {
+	return (
+		/\bmovinmotion\b/.test(text) &&
+		/\b(?:bulletin de paie|fiche de paie|salaire brut|net a payer|cotisations salariales|net imposable|salaire net)\b/.test(
+			text
+		)
+	);
+}
+
+function isMovinmotionCongeSpectacle(text: string) {
+	return (
+		/\bmovinmotion\b/.test(text) &&
+		/\b(?:cong[eé]s?\s+spectacl(?:e|es)|caisse\s+des?\s+cong[eé]s?|certificat\s+de\s+cong[eé]s?)\b/.test(
+			text
+		)
+	);
+}
+
 function analyzeMovinmotionContract(text: string) {
 	const searchable = normalizeDateText(text);
 	const fields: Partial<ContractFields> = {};
@@ -636,6 +654,90 @@ function analyzeMovinmotionContract(text: string) {
 
 	if (Object.keys(fields).length) {
 		notes.push('Contrat Movinmotion analysé depuis ses conditions particulières.');
+	}
+
+	return { fields, notes };
+}
+
+function analyzeMovinmotionPayroll(text: string) {
+	const searchable = normalizeDateText(text);
+	const fields: Partial<ContractFields> = {};
+	const notes: string[] = [];
+	const isMovinmotionPayroll =
+		/\bmovinmotion\b/.test(searchable) &&
+		/\b(?:bulletin de paie|fiche de paie|salaire brut|net a payer|cotisations salariales|net imposable|salaire net)\b/.test(
+			searchable
+		);
+
+	if (!isMovinmotionPayroll) return { fields, notes };
+
+	const grossSalary =
+		matchMoney(searchable, [
+			'salaire brut',
+			'montant brut',
+			'brut total',
+			'remuneration brute',
+			'remuneration totale',
+			'brut apres charges'
+		]) ?? matchFirstMoney(searchable, new RegExp(String.raw`\b(?:montant\s+brut|brut)\s+${moneyPattern}`, 'i'));
+	const netSalary = matchNetSalary(searchable);
+	const taxableNetSalary = matchMoney(searchable, [
+		'net imposable',
+		'net fiscal',
+		'base imposable',
+		'net declarable'
+	]);
+	const contributions = matchMoney(searchable, [
+		'cotisations salariales',
+		'total cotisations',
+		'charges salariales',
+		'cotisations'
+	]);
+
+	if (grossSalary !== undefined) fields.grossSalary = grossSalary;
+	if (netSalary !== undefined) fields.netSalary = netSalary;
+	if (taxableNetSalary !== undefined) fields.taxableNetSalary = taxableNetSalary;
+	if (contributions !== undefined) fields.contributions = contributions;
+
+	if (Object.keys(fields).length) {
+		notes.push('Fiche de paie Movinmotion analysée.');
+	}
+
+	return { fields, notes };
+}
+
+function analyzeMovinmotionCongeSpectacle(text: string) {
+	const searchable = normalizeDateText(text);
+	const fields: Partial<ContractFields> = {};
+	const notes: string[] = [];
+	const isMovinmotionCongeSpectacle =
+		/\bmovinmotion\b/.test(searchable) &&
+		/\b(?:cong[eé]s?\s+spectacl(?:e|es)|caisse\s+des?\s+cong[eé]s?|certificat\s+de\s+cong[eé]s?|indemnit[eé]\s+de\s+cong[eé]s?)\b/.test(
+			searchable
+		);
+
+	if (!isMovinmotionCongeSpectacle) return { fields, notes };
+
+	const grossSalary = matchMoney(searchable, [
+		'montant brut',
+		'remuneration brute',
+		'brut total',
+		'montant total'
+	]);
+	const netSalary = matchNetSalary(searchable);
+	const contributions = matchMoney(searchable, [
+		'cotisations salariales',
+		'charges salariales',
+		'contributions',
+		'indemnite'
+	]);
+
+	if (grossSalary !== undefined) fields.grossSalary = grossSalary;
+	if (netSalary !== undefined) fields.netSalary = netSalary;
+	if (contributions !== undefined) fields.contributions = contributions;
+
+	if (Object.keys(fields).length) {
+		notes.push('Congé Spectacle Movinmotion analysé.');
 	}
 
 	return { fields, notes };
@@ -695,6 +797,8 @@ export function analyzeDocumentText(text: string): DocumentAnalysis {
 	const gusoAnalysis = analyzeGusoFields(normalized);
 	const ghsPayrollAnalysis = analyzeGhsPayroll(searchable);
 	const movinmotionAnalysis = analyzeMovinmotionContract(normalized);
+	const movinmotionPayrollAnalysis = analyzeMovinmotionPayroll(searchable);
+	const movinmotionCongeSpectacleAnalysis = analyzeMovinmotionCongeSpectacle(searchable);
 
 	if (!normalized) {
 		return {
@@ -768,6 +872,17 @@ export function analyzeDocumentText(text: string): DocumentAnalysis {
 	notes.push(...ghsPayrollAnalysis.notes);
 	Object.assign(fields, movinmotionAnalysis.fields);
 	notes.push(...movinmotionAnalysis.notes);
+
+	Object.assign(fields, gusoAnalysis.fields);
+	notes.push(...gusoAnalysis.notes);
+	Object.assign(fields, ghsPayrollAnalysis.fields);
+	notes.push(...ghsPayrollAnalysis.notes);
+	Object.assign(fields, movinmotionAnalysis.fields);
+	notes.push(...movinmotionAnalysis.notes);
+	Object.assign(fields, movinmotionPayrollAnalysis.fields);
+	notes.push(...movinmotionPayrollAnalysis.notes);
+	Object.assign(fields, movinmotionCongeSpectacleAnalysis.fields);
+	notes.push(...movinmotionCongeSpectacleAnalysis.notes);
 
 	if (fields.grossSalary && fields.hours) {
 		fields.grossHourlyRate = Number((fields.grossSalary / fields.hours).toFixed(2));

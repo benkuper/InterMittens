@@ -41,7 +41,7 @@ try {
 		"Conseiller technique à la réalisation Contrat d'engagement à Durée Déterminée d'Usage n°7000000000000000",
 		'Nom de la production : KATABASIS',
 		'Fonction : C o n s e i l l e r t e c h n i q u e à l a r é a l i s a t i o n',
-		"Numéro d'objet : 251Z00000000",
+		"Numéro d'objet : 251Z000000000000000",
 		'Statut : Technicien Cadre',
 		'Lieu de travail : PARIS',
 		'Rémunération : 274,40 € bruts par jour (7h)',
@@ -61,6 +61,32 @@ try {
 		grossSalary: 2744,
 		grossHourlyRate: 39.2
 	});
+
+	const movinmotionPayslipText = [
+		'Movinmotion',
+		'Fiche de paie',
+		'Salaire brut : 1 500,00 €',
+		'Net a payer : 1 164,00 €',
+		'Cotisations salariales : 336,00 €'
+	].join(' ');
+
+	assert.equal(documentAnalysis.classifyDocumentKind(movinmotionPayslipText, 'Autre'), 'Fiche de paie');
+	assert.equal(documentAnalysis.analyzeDocumentText(movinmotionPayslipText).fields.grossSalary, 1500);
+	assert.equal(documentAnalysis.analyzeDocumentText(movinmotionPayslipText).fields.netSalary, 1164);
+
+	const movinmotionCongeSpectacleText = [
+		'Movinmotion',
+		'Congé Spectacle',
+		'Indemnité de congés spectacle',
+		'Montant brut : 120,00 €',
+		'Net a payer : 96,00 €',
+		'Caisse des Congés Spectacles'
+	].join(' ');
+
+	assert.equal(
+		documentAnalysis.classifyDocumentKind(movinmotionCongeSpectacleText, 'Autre'),
+		'Congé Spectacle'
+	);
 
 	const pdf = await PDFDocument.create();
 	const font = await pdf.embedFont(StandardFonts.Helvetica);
