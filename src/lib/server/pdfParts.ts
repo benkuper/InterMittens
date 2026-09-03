@@ -59,6 +59,20 @@ export function documentKindFromFileName(fileName: string, fallback: DocumentKin
 	return fallback;
 }
 
+function explicitDocumentKindFromFileName(fileName: string): DocumentKind | undefined {
+	const normalized = normalizeFileHint(fileName).replace(/\.[^.]+$/, '');
+	const prefix = normalized.match(/^\s*(?:\[\s*)?([a-z]+)(?:\s*\]|[-_\s]|$)/)?.[1];
+
+	if (prefix === 'aem') return 'AEM';
+	if (prefix === 'bp') return 'Fiche de paie';
+	if (prefix === 'cs') return 'Congé Spectacle';
+	if (prefix === 'guso') return 'Déclaration Guso';
+	if (prefix === 'are') return 'Notification ARE';
+	if (prefix === 'contrat') return 'Contrat';
+
+	return undefined;
+}
+
 function classifyWithFileName(text: string, fileName: string, fallbackKind: DocumentKind) {
 	return classifyDocumentKind(text, documentKindFromFileName(fileName, fallbackKind));
 }
@@ -97,11 +111,11 @@ export async function splitAndClassifyDocument(
 	try {
 		const source = await PDFDocument.load(buffer, { ignoreEncryption: true });
 		const pageCount = source.getPageCount();
-		const pageTexts = await extractPdfPagesText(buffer);
+		const explicitKind = explicitDocumentKindFromFileName(fileName);
 		const fullText = await extractPdfTextFromBufferAsync(buffer);
-		const fullKind = classifyWithFileName(fullText, fileName, fallbackKind);
+		const fullKind = explicitKind ?? classifyWithFileName(fullText, fileName, fallbackKind);
 
-		if (pageCount <= 1) {
+		if (pageCount <= 1 || explicitKind) {
 			return [
 				{
 					kind: fullKind,
@@ -109,12 +123,13 @@ export async function splitAndClassifyDocument(
 					text: fullText,
 					fileName,
 					pageStart: 1,
-					pageEnd: 1,
+					pageEnd: pageCount,
 					isSplit: false
 				}
 			];
 		}
 
+		const pageTexts = await extractPdfPagesText(buffer);
 		const pages = await Promise.all(
 			Array.from({ length: pageCount }, async (_, index) => {
 				const pageBuffer = await createPdfFromPages(source, [index]);

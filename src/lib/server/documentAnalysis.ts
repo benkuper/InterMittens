@@ -150,6 +150,14 @@ export function classifyDocumentKind(text: string, fallback: DocumentKind) {
 	}
 
 	if (
+		/contrat de travail|contrat d engagement|cdd d usage|engagement d artiste|conditions d engagement/.test(
+			normalized
+		)
+	) {
+		return 'Contrat' as const;
+	}
+
+	if (
 		/\b(?:certificat\s+d['’]?emploi\s+les?\s+cong[eé]s?\s+spectacl(?:e|es)|cong[eé]s?\s+spectacl(?:e|es)|caisse\s+des?\s+cong[eé]s?|certificat\s+de\s+cong[eé]s?|attestation\s+de\s+cong[eé]s?\s+spectacl(?:e|es)|indemnit[eé]\s+de\s+cong[eé]s?)\b/.test(
 			normalized
 		)
@@ -163,14 +171,6 @@ export function classifyDocumentKind(text: string, fallback: DocumentKind) {
 		)
 	) {
 		return 'Fiche de paie' as const;
-	}
-
-	if (
-		/contrat de travail|contrat d engagement|cdd d usage|engagement d artiste|conditions d engagement/.test(
-			normalized
-		)
-	) {
-		return 'Contrat' as const;
 	}
 
 	return fallback;
@@ -247,7 +247,32 @@ function matchPayrollCachets(text: string) {
 		if (value !== undefined) return value;
 	}
 
-	return matchNumber(text, ['nombre de cachets', 'nb cachets', 'cachets retenus']);
+	return undefined;
+}
+
+function isAemDocument(text: string) {
+	return /attestation employeur mensuelle|\baem\b|employeur mensuel/.test(text);
+}
+
+function analyzeAem(text: string) {
+	const searchable = normalizeDateText(text);
+	const fields: Partial<ContractFields> = {};
+	const notes: string[] = [];
+
+	if (!isAemDocument(searchable)) return { fields, notes };
+
+	const workValues = searchable.match(
+		/\b[0-3]?\d\s+[01]?\d\s+\d{4}\s+[0-3]?\d\s+[01]?\d\s+\d{4}\s+(?:x\s+){0,6}([0-9]+(?:[,.][0-9]+)?)\s+([0-9]+(?:[,.][0-9]+)?)(?=\s+[0-9])/i
+	);
+	const hours = toNumber(workValues?.[1]);
+	const days = toNumber(workValues?.[2]);
+
+	if (hours !== undefined && hours > 0 && hours <= 1_000 && days !== undefined && days <= 366) {
+		fields.hours = hours;
+		notes.push('Heures AEM analysées depuis la zone de prestation de travail.');
+	}
+
+	return { fields, notes };
 }
 
 function pdfFieldsMap(text: string) {
@@ -679,7 +704,11 @@ function analyzeMovinmotionPayroll(text: string) {
 			'remuneration brute',
 			'remuneration totale',
 			'brut apres charges'
-		]) ?? matchFirstMoney(searchable, new RegExp(String.raw`\b(?:montant\s+brut|brut)\s+${moneyPattern}`, 'i'));
+		]) ??
+		matchFirstMoney(
+			searchable,
+			new RegExp(String.raw`\b(?:montant\s+brut|brut)\s+${moneyPattern}`, 'i')
+		);
 	const netSalary = matchNetSalary(searchable);
 	const taxableNetSalary = matchMoney(searchable, [
 		'net imposable',
@@ -794,6 +823,7 @@ export function analyzeDocumentText(text: string): DocumentAnalysis {
 	const searchable = normalizeDateText(normalized);
 	const notes: string[] = [];
 	const fields: Partial<ContractFields> = {};
+	const aemAnalysis = analyzeAem(normalized);
 	const gusoAnalysis = analyzeGusoFields(normalized);
 	const ghsPayrollAnalysis = analyzeGhsPayroll(searchable);
 	const movinmotionAnalysis = analyzeMovinmotionContract(normalized);
@@ -814,16 +844,19 @@ export function analyzeDocumentText(text: string): DocumentAnalysis {
 	const startDate = detectedPeriod?.startDate ?? matchDate(searchable, ['date de debut', 'debut']);
 	const endDate = detectedPeriod?.endDate ?? matchDate(searchable, ['date de fin', 'fin']);
 	const detectedHours =
+		aemAnalysis.fields.hours ??
 		matchWorkedHours(searchable) ??
-		matchNumber(searchable, [
-			'nombre d.heures',
-			'nombre d heures',
-			'heures travaillees',
-			'heures declarees',
-			'heures effectuees',
-			'heures retenues',
-			'nb heures'
-		]);
+		(!isAemDocument(searchable)
+			? matchNumber(searchable, [
+					'nombre d.heures',
+					'nombre d heures',
+					'heures travaillees',
+					'heures declarees',
+					'heures effectuees',
+					'heures retenues',
+					'nb heures'
+				])
+			: undefined);
 	const cachets = matchPayrollCachets(searchable);
 	const employmentStatus = matchEmploymentStatus(searchable);
 	const title = matchContractTitle(normalized);
@@ -872,17 +905,12 @@ export function analyzeDocumentText(text: string): DocumentAnalysis {
 	notes.push(...ghsPayrollAnalysis.notes);
 	Object.assign(fields, movinmotionAnalysis.fields);
 	notes.push(...movinmotionAnalysis.notes);
-
-	Object.assign(fields, gusoAnalysis.fields);
-	notes.push(...gusoAnalysis.notes);
-	Object.assign(fields, ghsPayrollAnalysis.fields);
-	notes.push(...ghsPayrollAnalysis.notes);
-	Object.assign(fields, movinmotionAnalysis.fields);
-	notes.push(...movinmotionAnalysis.notes);
 	Object.assign(fields, movinmotionPayrollAnalysis.fields);
 	notes.push(...movinmotionPayrollAnalysis.notes);
 	Object.assign(fields, movinmotionCongeSpectacleAnalysis.fields);
 	notes.push(...movinmotionCongeSpectacleAnalysis.notes);
+	Object.assign(fields, aemAnalysis.fields);
+	notes.push(...aemAnalysis.notes);
 
 	if (fields.grossSalary && fields.hours) {
 		fields.grossHourlyRate = Number((fields.grossSalary / fields.hours).toFixed(2));

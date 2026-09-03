@@ -11,6 +11,10 @@ const server = await createServer({
 try {
 	const documentAnalysis = await server.ssrLoadModule('/src/lib/server/documentAnalysis.ts');
 	const pdfParts = await server.ssrLoadModule('/src/lib/server/pdfParts.ts');
+	assert.equal(pdfParts.documentKindFromFileName('cs-2026-08.pdf', 'Autre'), 'Congé Spectacle');
+	assert.equal(pdfParts.documentKindFromFileName('aem-2026-08.pdf', 'Autre'), 'AEM');
+	assert.equal(pdfParts.documentKindFromFileName('bp-2026-08.pdf', 'Autre'), 'Fiche de paie');
+	assert.equal(pdfParts.documentKindFromFileName('contrat-katabasis.pdf', 'Autre'), 'Contrat');
 	const contractText = [
 		"CONTRAT D'ENGAGEMENT TECHNICIEN",
 		'Contrat 123456',
@@ -70,8 +74,14 @@ try {
 		'Cotisations salariales : 336,00 €'
 	].join(' ');
 
-	assert.equal(documentAnalysis.classifyDocumentKind(movinmotionPayslipText, 'Autre'), 'Fiche de paie');
-	assert.equal(documentAnalysis.analyzeDocumentText(movinmotionPayslipText).fields.grossSalary, 1500);
+	assert.equal(
+		documentAnalysis.classifyDocumentKind(movinmotionPayslipText, 'Autre'),
+		'Fiche de paie'
+	);
+	assert.equal(
+		documentAnalysis.analyzeDocumentText(movinmotionPayslipText).fields.grossSalary,
+		1500
+	);
 	assert.equal(documentAnalysis.analyzeDocumentText(movinmotionPayslipText).fields.netSalary, 1164);
 
 	const movinmotionCongeSpectacleText = [
@@ -87,6 +97,15 @@ try {
 		documentAnalysis.classifyDocumentKind(movinmotionCongeSpectacleText, 'Autre'),
 		'Congé Spectacle'
 	);
+
+	const aemText = [
+		'ATTESTATION (AEM)',
+		"Nombre d'HEURES effectuées Nombre de CACHETS* 5/ AUTHENTIFICATION PAR L'EMPLOYEUR",
+		'SILAE X X 03 08 2026 31 08 2026 X 147 21 5762.40 5762.40'
+	].join(' ');
+	const aemFields = documentAnalysis.analyzeDocumentText(aemText).fields;
+	assert.equal(aemFields.hours, 147);
+	assert.equal(aemFields.cachets, undefined);
 
 	const pdf = await PDFDocument.create();
 	const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -112,6 +131,30 @@ try {
 	assert.equal(parts[0].pageStart, 1);
 	assert.equal(parts[0].pageEnd, 2);
 	assert.equal(parts[0].isSplit, false);
+
+	const prefixedPdf = await PDFDocument.create();
+	const prefixedFirstPage = prefixedPdf.addPage();
+	prefixedFirstPage.drawText('CERTIFICAT DE CONGES SPECTACLES', {
+		font,
+		size: 10,
+		x: 40,
+		y: 760
+	});
+	const prefixedSecondPage = prefixedPdf.addPage();
+	prefixedSecondPage.drawText('CONTRAT DE TRAVAIL', { font, size: 10, x: 40, y: 760 });
+
+	const prefixedParts = await pdfParts.splitAndClassifyDocument(
+		'contrat-katabasis.pdf',
+		'application/pdf',
+		Buffer.from(await prefixedPdf.save()),
+		'Autre'
+	);
+
+	assert.equal(prefixedParts.length, 1);
+	assert.equal(prefixedParts[0].kind, 'Contrat');
+	assert.equal(prefixedParts[0].pageStart, 1);
+	assert.equal(prefixedParts[0].pageEnd, 2);
+	assert.equal(prefixedParts[0].isSplit, false);
 
 	console.log('Document analysis regression tests passed.');
 } finally {
