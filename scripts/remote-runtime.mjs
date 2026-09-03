@@ -85,6 +85,14 @@ function normalizeBasePath(value) {
 	return trimTrailingSlash(basePath);
 }
 
+function inferBasePathFromRemotePath(remotePath) {
+	const lastSegment = trimTrailingSlash(String(remotePath ?? ''))
+		.split('/')
+		.filter(Boolean)
+		.at(-1);
+	return lastSegment ? `/${lastSegment}` : '';
+}
+
 function npmPathFromNodePath(nodePath) {
 	return nodePath.endsWith('/node') ? `${nodePath.slice(0, -5)}/npm` : 'npm';
 }
@@ -108,11 +116,12 @@ async function loadConfig(env) {
 		env.DEPLOY_SFTP_CONFIG || path.join('.vscode', 'sftp.json')
 	);
 	const sftpConfig = JSON.parse(await readFile(sftpConfigPath, 'utf-8'));
+	const remoteRoot = trimTrailingSlash(String(sftpConfig.remotePath));
 
 	return {
 		sftpConfig,
-		remoteRoot: trimTrailingSlash(String(sftpConfig.remotePath)),
-		basePath: normalizeBasePath(env.DEPLOY_BASE_PATH),
+		remoteRoot,
+		basePath: normalizeBasePath(env.DEPLOY_BASE_PATH || inferBasePathFromRemotePath(remoteRoot)),
 		nodePath: String(env.DEPLOY_REMOTE_NODE || '/opt/plesk/node/22/bin/node'),
 		npmPath: String(
 			env.DEPLOY_REMOTE_NPM ||
