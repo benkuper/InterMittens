@@ -670,12 +670,12 @@ export function createIntermittensState(initialData: AppData) {
 		if (!files.length) return;
 
 		const undoSnapshot: ContractImportUndoSnapshot = {
-			data: structuredClone(appData),
+			data: $state.snapshot(appData),
 			activeTab,
 			selectedCompanyId,
 			selectedProjectId,
 			selectedContractId,
-			companySuggestions: structuredClone(companySuggestionState)
+			companySuggestions: $state.snapshot(companySuggestionState)
 		};
 		contractImportUndoSnapshot = undefined;
 		contractImportFeedback = {
