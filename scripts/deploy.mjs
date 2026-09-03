@@ -616,7 +616,10 @@ async function main() {
 			: '';
 
 	if (!skipBuild) {
-		const buildEnv = basePath && basePath !== '/' ? { BASE_PATH: basePath } : {};
+		const buildEnv = {
+			APP_DEPLOYED_AT: new Date().toISOString(),
+			...(basePath && basePath !== '/' ? { BASE_PATH: basePath } : {})
+		};
 		await run(npmCommand(), ['run', 'build'], {
 			env: buildEnv,
 			label: basePath ? `BASE_PATH=${basePath} npm run build` : 'npm run build'

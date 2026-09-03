@@ -2,6 +2,7 @@
 	import type { IntermittensState } from '$lib/app/state.svelte';
 	import Calendar from '$lib/components/Calendar.svelte';
 	import { formatCurrency, formatDate, formatNumber } from '$lib/format';
+	import ImportFeedback from '$lib/components/ImportFeedback.svelte';
 	import { buildMonthlyContractBreakdown, contractRecognizedHours, monthLabel } from '$lib/stats';
 	import type { Contract } from '$lib/types';
 
@@ -115,9 +116,7 @@
 				>
 			</div>
 		</div>
-		{#if appState.contractImportState}
-			<p class="analysis-note">{appState.contractImportState}</p>
-		{/if}
+		<ImportFeedback state={appState} />
 		<div class="table-wrap">
 			<table>
 				<thead>

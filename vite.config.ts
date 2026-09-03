@@ -1,6 +1,12 @@
 import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
+
+const packageMetadata = JSON.parse(
+	readFileSync(new URL('./package.json', import.meta.url), 'utf-8')
+) as { version: string };
+const deployedAt = process.env.APP_DEPLOYED_AT ?? new Date().toISOString();
 
 const basePath =
 	process.env.BASE_PATH && process.env.BASE_PATH !== '/'
@@ -8,6 +14,10 @@ const basePath =
 		: '';
 
 export default defineConfig({
+	define: {
+		__APP_VERSION__: JSON.stringify(packageMetadata.version),
+		__DEPLOYED_AT__: JSON.stringify(deployedAt)
+	},
 	plugins: [
 		sveltekit({
 			compilerOptions: {

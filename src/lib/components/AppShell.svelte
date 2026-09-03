@@ -7,6 +7,11 @@
 		$props();
 
 	const autoSaveDelayMs = 900;
+	const deployedAtLabel = new Intl.DateTimeFormat('fr-FR', {
+		dateStyle: 'short',
+		timeStyle: 'short',
+		timeZone: 'Europe/Paris'
+	}).format(new Date(__DEPLOYED_AT__));
 
 	$effect(() => {
 		const revision = state.changeRevision;
@@ -51,14 +56,6 @@
 		</nav>
 
 		<div class="save-box">
-			<button
-				class="primary"
-				type="button"
-				onclick={() => state.saveData()}
-				disabled={state.saveState === 'saving'}
-			>
-				{state.saveState === 'saving' ? 'Sauvegarde...' : 'Sauver maintenant'}
-			</button>
 			<span class:error={state.saveState === 'error'} class:ok={state.saveState === 'saved'}>
 				{#if state.saveState === 'saved'}
 					JSON à jour
@@ -70,9 +67,27 @@
 					Prêt
 				{/if}
 			</span>
+
+			<button
+				class="primary"
+				type="button"
+				onclick={() => state.saveData()}
+				disabled={state.saveState === 'saving'}
+			>
+				{state.saveState === 'saving' ? 'Sauvegarde...' : 'Sauver maintenant'}
+			</button>
+
 			<form method="POST" action={`${base}/logout`}>
 				<button class="ghost-button logout-button" type="submit">Déconnexion</button>
 			</form>
+		</div>
+
+		<div
+			class="deployment-info"
+			title={`Version ${__APP_VERSION__} · déploiement du ${deployedAtLabel}`}
+		>
+			<span>v{__APP_VERSION__}</span>
+			<span>Déployé le {deployedAtLabel}</span>
 		</div>
 	</aside>
 

@@ -71,7 +71,39 @@ type DocumentUploadPayload = {
 type DocumentImportPayload = DocumentUploadPayload & {
 	createdContractId: string;
 	routedContractId: string;
+	documentIds: string[];
 	periodIds: string[];
+	appliedFields: Partial<ContractFields>;
+};
+
+export type ContractImportFeedbackItem = {
+	fileName: string;
+	status: 'success' | 'error';
+	kind: string;
+	destination: string;
+	fields: string[];
+	warnings: string[];
+};
+
+export type ContractImportFeedback = {
+	phase: 'importing' | 'success' | 'partial' | 'error' | 'undoing' | 'undone';
+	title: string;
+	summary: string;
+	processed: number;
+	total: number;
+	succeeded: number;
+	failed: number;
+	items: ContractImportFeedbackItem[];
+	canUndo: boolean;
+};
+
+type ContractImportUndoSnapshot = {
+	data: AppData;
+	activeTab: Tab;
+	selectedCompanyId: string;
+	selectedProjectId: string;
+	selectedContractId: string;
+	companySuggestions: CompanySuggestion[];
 };
 
 type AreNotificationPayload = {
@@ -195,7 +227,8 @@ export function createIntermittensState(initialData: AppData) {
 	let companyEditId = $state('');
 	let saveState = $state<'idle' | 'saving' | 'saved' | 'error'>('idle');
 	let uploadState = $state<Record<string, string>>({});
-	let contractImportState = $state('');
+	let contractImportFeedback = $state<ContractImportFeedback | null>(null);
+	let contractImportUndoSnapshot: ContractImportUndoSnapshot | undefined;
 	let companySuggestionState = $state<CompanySuggestion[]>([]);
 	let areUploadState = $state('');
 	let cleanupFilesState = $state('');
@@ -240,6 +273,10 @@ export function createIntermittensState(initialData: AppData) {
 	);
 
 	function touch() {
+		if (contractImportUndoSnapshot && contractImportFeedback?.canUndo) {
+			contractImportUndoSnapshot = undefined;
+			contractImportFeedback = { ...contractImportFeedback, canUndo: false };
+		}
 		changeRevision += 1;
 		dirty = true;
 		if (saveState === 'saved' || saveState === 'error') saveState = 'idle';
@@ -491,7 +528,8 @@ export function createIntermittensState(initialData: AppData) {
 		const contract = createContract(selectedCompanyId, projectId, project);
 		appData.contracts.unshift(contract);
 		selectedContractId = contract.id;
-		contractImportState = '';
+		contractImportFeedback = null;
+		contractImportUndoSnapshot = undefined;
 		activeTab = 'contrats';
 		touch();
 	}
@@ -595,7 +633,35 @@ export function createIntermittensState(initialData: AppData) {
 		mergeCompanySuggestions(payload.companySuggestions);
 		dirty = false;
 		saveState = 'saved';
-		uploadState[contract.id] = payload.analysis.notes?.join(' ') ?? 'Document importé.';
+		uploadState[contract.id] = `${file.name} importé et analysé.`;
+	}
+
+	function importFieldLabels(fields: Partial<ContractFields>) {
+		const labels: string[] = [];
+		const format = (value: number) =>
+			new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 }).format(value);
+
+		if (fields.hours !== undefined) labels.push(`${format(fields.hours)} h`);
+		if (fields.cachets) labels.push(`${format(fields.cachets)} cachet(s)`);
+		if (fields.grossSalary) labels.push(`${format(fields.grossSalary)} € brut`);
+		if (fields.netSalary) labels.push(`${format(fields.netSalary)} € net`);
+
+		return labels.slice(0, 3);
+	}
+
+	function usefulImportWarnings(notes: string[]) {
+		return [
+			...new Set(
+				notes.filter((note) =>
+					/doublon|conflit|inconnue|aucun (?:texte|champ)|découpé|indisponible/i.test(note)
+				)
+			)
+		].slice(0, 2);
+	}
+
+	function dismissContractImportFeedback() {
+		contractImportFeedback = null;
+		contractImportUndoSnapshot = undefined;
 	}
 
 	async function createContractFromDocument(event: Event) {
@@ -603,21 +669,42 @@ export function createIntermittensState(initialData: AppData) {
 		const files = Array.from(input.files ?? []);
 		if (!files.length) return;
 
-		contractImportState =
-			files.length === 1
-				? 'Import et rangement automatique du document...'
-				: `Import et rangement automatique de ${files.length} documents...`;
+		const undoSnapshot: ContractImportUndoSnapshot = {
+			data: structuredClone(appData),
+			activeTab,
+			selectedCompanyId,
+			selectedProjectId,
+			selectedContractId,
+			companySuggestions: structuredClone(companySuggestionState)
+		};
+		contractImportUndoSnapshot = undefined;
+		contractImportFeedback = {
+			phase: 'importing',
+			title: 'Import en cours',
+			summary:
+				files.length === 1
+					? `Analyse de ${files[0].name}`
+					: `Analyse et classement de ${files.length} documents`,
+			processed: 0,
+			total: files.length,
+			succeeded: 0,
+			failed: 0,
+			items: [],
+			canUndo: false
+		};
 
 		let importedCount = 0;
 		let lastRoutedContractId = '';
 		let sawPeriodImport = false;
-		const feedback: string[] = [];
-		const errors: string[] = [];
+		const items: ContractImportFeedbackItem[] = [];
 
 		for (const [index, file] of files.entries()) {
-			if (files.length > 1) {
-				contractImportState = `Import ${index + 1}/${files.length} : ${file.name}`;
-			}
+			contractImportFeedback = {
+				...contractImportFeedback!,
+				summary: `Analyse de ${file.name}`,
+				processed: index,
+				items: [...items]
+			};
 
 			const body = new FormData();
 			body.set('autoRoute', 'true');
@@ -631,24 +718,47 @@ export function createIntermittensState(initialData: AppData) {
 				response = await fetch(`${base}/api/documents`, { method: 'POST', body });
 				payload = await readServerPayload<DocumentImportPayload>(response, {
 					analysis: { notes: ['Réponse serveur illisible.'] },
+					appliedFields: {},
 					companySuggestions: [],
 					createdContractId: '',
+					documentIds: [],
 					message: 'Réponse serveur illisible.',
 					periodIds: [],
 					routedContractId: ''
 				});
 			} catch {
-				errors.push(`${file.name} : erreur réseau.`);
+				items.push({
+					fileName: file.name,
+					status: 'error',
+					kind: 'Échec',
+					destination: 'Erreur réseau pendant l’import.',
+					fields: [],
+					warnings: []
+				});
 				continue;
 			}
 
 			if (!response.ok) {
-				errors.push(`${file.name} : ${payload.message ?? 'Erreur pendant l’import.'}`);
+				items.push({
+					fileName: file.name,
+					status: 'error',
+					kind: 'Échec',
+					destination: payload.message ?? 'Erreur pendant l’import.',
+					fields: [],
+					warnings: []
+				});
 				continue;
 			}
 
 			if (!payload.data) {
-				errors.push(`${file.name} : réponse serveur incomplète.`);
+				items.push({
+					fileName: file.name,
+					status: 'error',
+					kind: 'Échec',
+					destination: 'Réponse serveur incomplète.',
+					fields: [],
+					warnings: []
+				});
 				continue;
 			}
 
@@ -659,27 +769,36 @@ export function createIntermittensState(initialData: AppData) {
 			const routedContractId = payload.routedContractId || payload.createdContractId || '';
 			if (routedContractId) {
 				lastRoutedContractId = routedContractId;
-				uploadState[routedContractId] =
-					payload.analysis.notes?.join(' ') ??
-					(payload.createdContractId
-						? 'Contrat créé depuis le document.'
-						: 'Document rangé dans un contrat existant.');
+				uploadState[routedContractId] = payload.createdContractId
+					? 'Contrat créé et documents classés automatiquement.'
+					: `${file.name} classé automatiquement.`;
 			}
 
-			if (payload.periodIds.length) sawPeriodImport = true;
+			if ((payload.periodIds ?? []).length) sawPeriodImport = true;
 
-			const note = payload.analysis.notes.join(' ');
-			if (note) {
-				feedback.push(`${file.name} : ${note}`);
-			} else if (routedContractId) {
-				feedback.push(
-					`${file.name} : ${
-						payload.createdContractId
-							? 'contrat créé depuis le document.'
-							: 'document rangé dans un contrat existant.'
-					}`
-				);
-			}
+			const importedDocuments = payload.data.documents.filter((document) =>
+				(payload.documentIds ?? []).includes(document.id)
+			);
+			const kinds = [...new Set(importedDocuments.map((document) => document.kind))];
+			const detectedFields = Object.assign(
+				{},
+				...importedDocuments.map((document) => document.extractedFields),
+				payload.appliedFields ?? {}
+			) as Partial<ContractFields>;
+			const routedContract = payload.data.contracts.find(
+				(contract) => contract.id === routedContractId
+			);
+			items.push({
+				fileName: file.name,
+				status: 'success',
+				kind:
+					kinds.join(' + ') || ((payload.periodIds ?? []).length ? 'Notification ARE' : 'Document'),
+				destination: routedContract
+					? `${payload.createdContractId ? 'Nouveau contrat' : 'Classé dans'} · ${routedContract.title}`
+					: 'Intermittence mise à jour',
+				fields: importFieldLabels(detectedFields),
+				warnings: usefulImportWarnings(payload.analysis.notes ?? [])
+			});
 		}
 
 		input.value = '';
@@ -696,21 +815,99 @@ export function createIntermittensState(initialData: AppData) {
 			saveState = 'saved';
 		}
 
-		const summary =
-			importedCount === files.length
-				? `${importedCount} document(s) importé(s) et classé(s).`
-				: importedCount > 0
-					? `${importedCount}/${files.length} document(s) importé(s).`
-					: 'Aucun document importé.';
-		const details = [...errors, ...feedback].slice(0, 4);
-		const hiddenDetailsCount = Math.max(0, errors.length + feedback.length - details.length);
-		contractImportState = [
-			summary,
-			...details,
-			hiddenDetailsCount ? `+${hiddenDetailsCount} message(s).` : ''
-		]
-			.filter(Boolean)
-			.join(' ');
+		const failedCount = files.length - importedCount;
+		contractImportUndoSnapshot = importedCount > 0 ? undoSnapshot : undefined;
+		contractImportFeedback = {
+			phase: importedCount === 0 ? 'error' : failedCount > 0 ? 'partial' : 'success',
+			title:
+				importedCount === 0
+					? 'Import impossible'
+					: `${importedCount} document${importedCount > 1 ? 's' : ''} importé${importedCount > 1 ? 's' : ''}`,
+			summary:
+				failedCount === 0
+					? 'Tous les fichiers ont été analysés et classés automatiquement.'
+					: `${failedCount} fichier${failedCount > 1 ? 's n’ont' : ' n’a'} pas pu être importé${failedCount > 1 ? 's' : ''}.`,
+			processed: files.length,
+			total: files.length,
+			succeeded: importedCount,
+			failed: failedCount,
+			items,
+			canUndo: importedCount > 0
+		};
+	}
+
+	async function undoContractImport() {
+		const snapshot = contractImportUndoSnapshot;
+		const previousFeedback = contractImportFeedback;
+		if (!snapshot || !previousFeedback?.canUndo) return;
+
+		contractImportFeedback = {
+			...previousFeedback,
+			phase: 'undoing',
+			title: 'Annulation en cours',
+			summary: 'Restauration de la situation avant import…',
+			canUndo: false
+		};
+
+		try {
+			const response = await fetch(`${base}/api/data`, {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(snapshot.data)
+			});
+			if (!response.ok) throw new Error('Restauration refusée par le serveur.');
+
+			appData = (await response.json()) as AppData;
+			try {
+				const cleanupResponse = await fetch(`${base}/api/maintenance/cleanup`, { method: 'POST' });
+				const cleanupPayload = await readServerPayload<DataMutationPayload>(cleanupResponse, {});
+				if (cleanupResponse.ok && cleanupPayload.data) appData = cleanupPayload.data;
+			} catch {
+				// Les données sont déjà restaurées ; le nettoyage pourra être relancé plus tard.
+			}
+
+			activeTab = snapshot.activeTab;
+			selectedCompanyId = appData.companies.some(
+				(company) => company.id === snapshot.selectedCompanyId
+			)
+				? snapshot.selectedCompanyId
+				: (appData.companies[0]?.id ?? '');
+			selectedProjectId = appData.projects.some(
+				(project) => project.id === snapshot.selectedProjectId
+			)
+				? snapshot.selectedProjectId
+				: (appData.projects[0]?.id ?? '');
+			selectedContractId = appData.contracts.some(
+				(contract) => contract.id === snapshot.selectedContractId
+			)
+				? snapshot.selectedContractId
+				: (appData.contracts[0]?.id ?? '');
+			companySuggestionState = structuredClone(snapshot.companySuggestions);
+			uploadState = {};
+			dirty = false;
+			saveState = 'saved';
+			changeRevision += 1;
+			contractImportUndoSnapshot = undefined;
+			contractImportFeedback = {
+				phase: 'undone',
+				title: 'Import annulé',
+				summary: 'Les documents et les modifications associées ont été retirés.',
+				processed: previousFeedback.total,
+				total: previousFeedback.total,
+				succeeded: 0,
+				failed: 0,
+				items: [],
+				canUndo: false
+			};
+		} catch {
+			contractImportFeedback = {
+				...previousFeedback,
+				phase: 'error',
+				title: 'Annulation impossible',
+				summary: 'Le serveur n’a pas pu restaurer les données. Vous pouvez réessayer.',
+				canUndo: true
+			};
+		}
 	}
 
 	async function cleanupUnusedFiles() {
@@ -889,8 +1086,8 @@ export function createIntermittensState(initialData: AppData) {
 		get uploadState() {
 			return uploadState;
 		},
-		get contractImportState() {
-			return contractImportState;
+		get contractImportFeedback() {
+			return contractImportFeedback;
 		},
 		get companySuggestionState() {
 			return companySuggestionState;
@@ -978,6 +1175,8 @@ export function createIntermittensState(initialData: AppData) {
 		applyFields,
 		uploadDocument,
 		createContractFromDocument,
+		undoContractImport,
+		dismissContractImportFeedback,
 		cleanupUnusedFiles,
 		uploadAreNotification,
 		removePeriod,

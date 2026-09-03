@@ -37,15 +37,15 @@ try {
 	const data = {
 		periods: [
 			{
-				id: 'period-2025',
-				indemnizationStartDate: '2025-07-16',
-				anniversaryDate: '2026-07-15',
+				id: 'period-2026',
+				indemnizationStartDate: '2026-07-10',
+				anniversaryDate: '2027-07-09',
 				referenceStartDate: '',
 				referenceEndDate: ''
 			}
 		],
 		settings: {
-			activePeriodId: 'period-2025',
+			activePeriodId: 'period-2026',
 			monthlyWorkDayDivisor: 10,
 			monthlyShiftCoefficient: 1,
 			pmss: 0,
@@ -53,9 +53,11 @@ try {
 			minDailyAllowance: 0
 		},
 		contracts: [
-			contract('Avant anniversaire', '2026-07-10', 7, 210),
-			contract('Après anniversaire', '2026-07-20', 8, 240),
-			contract('Mois suivant', '2026-08-02', 6, 180)
+			contract('Année précédente', '2026-07-09', 6, 180),
+			contract('Premier jour', '2026-07-10', 7, 210),
+			contract('Fin juillet', '2026-07-20', 8, 240),
+			contract('Dernier jour', '2027-07-09', 9, 270),
+			contract('Année suivante', '2027-07-10', 10, 300)
 		],
 		monthlyInfos: []
 	};
@@ -63,7 +65,7 @@ try {
 	const declaration = stats.buildMonthlyContractBreakdown(data, '2026-07');
 	assert.deepEqual(
 		declaration.map((detail) => detail.contract.title),
-		['Avant anniversaire', 'Après anniversaire']
+		['Premier jour', 'Fin juillet']
 	);
 	assert.equal(
 		declaration.reduce((total, detail) => total + detail.grossSalary, 0),
@@ -73,8 +75,12 @@ try {
 	const periodJuly = stats
 		.buildMonthlyStats(data)
 		.find((monthStats) => monthStats.month === '2026-07');
-	assert.equal(periodJuly?.grossSalary, 210);
-	assert.equal(stats.buildMonthlyContractBreakdown(data, '2026-08').length, 0);
+	assert.equal(periodJuly?.grossSalary, 450);
+
+	assert.deepEqual(
+		stats.buildMonthlyContractBreakdown(data, '2027-07').map((detail) => detail.contract.title),
+		['Dernier jour']
+	);
 
 	console.log('Stats regression tests passed.');
 } finally {

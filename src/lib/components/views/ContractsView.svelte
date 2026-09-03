@@ -2,6 +2,7 @@
 	import { statuses, type IntermittensState } from '$lib/app/state.svelte';
 	import DateInput from '$lib/components/DateInput.svelte';
 	import DocumentList from '$lib/components/DocumentList.svelte';
+	import ImportFeedback from '$lib/components/ImportFeedback.svelte';
 	import { formatCurrency, formatDate, formatNumber } from '$lib/format';
 	import type { Contract, IntermittencePeriod } from '$lib/types';
 
@@ -150,9 +151,7 @@
 				>
 			</div>
 		</div>
-		{#if appState.contractImportState}
-			<p class="analysis-note">{appState.contractImportState}</p>
-		{/if}
+		<ImportFeedback state={appState} />
 		{#if appState.companySuggestionState.length}
 			<div class="suggestion-stack">
 				{#each appState.companySuggestionState as suggestion}

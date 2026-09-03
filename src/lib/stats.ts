@@ -351,8 +351,8 @@ export function buildMonthlyContractBreakdown(
 
 	return data.contracts
 		.flatMap((contract) => {
-			// La déclaration mensuelle porte sur le mois civil complet, y compris lorsque
-			// la période ARE commence ou se termine au milieu de ce mois.
+			if (!isDateInsidePeriod(contract.startDate, activePeriod)) return [];
+
 			const split = splitContractAcrossMonths(contract).find((item) => item.month === month);
 			if (!split) return [];
 
