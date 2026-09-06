@@ -2,9 +2,8 @@ import { PDFDocument } from 'pdf-lib';
 
 import {
 	classifyDocumentKind,
+	extractPdfDocumentText,
 	extractPdfTextFromBuffer,
-	extractPdfTextFromBufferAsync,
-	extractPdfPagesText,
 	extractTextFromBuffer
 } from '$lib/server/documentAnalysis';
 import type { DocumentKind } from '$lib/types';
@@ -17,7 +16,39 @@ export type DocumentPart = {
 	pageStart: number;
 	pageEnd: number;
 	isSplit: boolean;
+	extractionNotes: string[];
 };
+
+function extractionNotes(
+	extraction: Awaited<ReturnType<typeof extractPdfDocumentText>>,
+	pageIndexes: number[]
+) {
+	const pageNumbers = new Set(pageIndexes.map((index) => index + 1));
+	const ocrCount = extraction.ocrPageNumbers.filter((page) => pageNumbers.has(page)).length;
+	const attemptedCount = extraction.ocrAttemptedPageNumbers.filter((page) =>
+		pageNumbers.has(page)
+	).length;
+	const skippedCount = extraction.ocrSkippedPageNumbers.filter((page) =>
+		pageNumbers.has(page)
+	).length;
+	const notes: string[] = [];
+
+	if (ocrCount) {
+		notes.push(
+			`OCR française appliquée à ${ocrCount} page${ocrCount > 1 ? 's' : ''} scannée${ocrCount > 1 ? 's' : ''}.`
+		);
+	}
+	if (extraction.ocrFailed && attemptedCount) {
+		notes.push("L'OCR française n'a pas pu analyser toutes les pages scannées.");
+	}
+	if (skippedCount) {
+		notes.push(
+			`${skippedCount} page${skippedCount > 1 ? 's' : ''} scannée${skippedCount > 1 ? 's' : ''} non analysée${skippedCount > 1 ? 's' : ''} (limite OCR de 20 pages).`
+		);
+	}
+
+	return notes;
+}
 
 function suffixFileName(fileName: string, pageStart: number, pageEnd: number) {
 	const dot = fileName.lastIndexOf('.');
@@ -103,7 +134,8 @@ export async function splitAndClassifyDocument(
 				fileName,
 				pageStart: 1,
 				pageEnd: 1,
-				isSplit: false
+				isSplit: false,
+				extractionNotes: []
 			}
 		];
 	}
@@ -112,8 +144,10 @@ export async function splitAndClassifyDocument(
 		const source = await PDFDocument.load(buffer, { ignoreEncryption: true });
 		const pageCount = source.getPageCount();
 		const explicitKind = explicitDocumentKindFromFileName(fileName);
-		const fullText = await extractPdfTextFromBufferAsync(buffer);
+		const extraction = await extractPdfDocumentText(buffer);
+		const fullText = extraction.text;
 		const fullKind = explicitKind ?? classifyWithFileName(fullText, fileName, fallbackKind);
+		const allPageIndexes = Array.from({ length: pageCount }, (_, index) => index);
 
 		if (pageCount <= 1 || explicitKind) {
 			return [
@@ -124,19 +158,16 @@ export async function splitAndClassifyDocument(
 					fileName,
 					pageStart: 1,
 					pageEnd: pageCount,
-					isSplit: false
+					isSplit: false,
+					extractionNotes: extractionNotes(extraction, allPageIndexes)
 				}
 			];
 		}
 
-		const pageTexts = await extractPdfPagesText(buffer);
+		const pageTexts = extraction.pages;
 		const pages = await Promise.all(
 			Array.from({ length: pageCount }, async (_, index) => {
-				const pageBuffer = await createPdfFromPages(source, [index]);
-				const text =
-					pageTexts[index] ||
-					(await extractPdfTextFromBufferAsync(pageBuffer)) ||
-					extractPdfTextFromBuffer(pageBuffer);
+				const text = pageTexts[index] || fullText;
 				return {
 					index,
 					text,
@@ -155,7 +186,8 @@ export async function splitAndClassifyDocument(
 					fileName,
 					pageStart: 1,
 					pageEnd: pageCount,
-					isSplit: false
+					isSplit: false,
+					extractionNotes: extractionNotes(extraction, allPageIndexes)
 				}
 			];
 		}
@@ -184,7 +216,8 @@ export async function splitAndClassifyDocument(
 					fileName: suffixFileName(fileName, pageStart, pageEnd),
 					pageStart,
 					pageEnd,
-					isSplit: true
+					isSplit: true,
+					extractionNotes: extractionNotes(extraction, group.indexes)
 				};
 			})
 		);
@@ -198,7 +231,8 @@ export async function splitAndClassifyDocument(
 				fileName,
 				pageStart: 1,
 				pageEnd: 1,
-				isSplit: false
+				isSplit: false,
+				extractionNotes: []
 			}
 		];
 	}

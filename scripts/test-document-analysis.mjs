@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 
+import { createCanvas } from '@napi-rs/canvas';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { createServer } from 'vite';
 
@@ -131,6 +132,7 @@ try {
 	assert.equal(parts[0].pageStart, 1);
 	assert.equal(parts[0].pageEnd, 2);
 	assert.equal(parts[0].isSplit, false);
+	assert.deepEqual(parts[0].extractionNotes, []);
 
 	const prefixedPdf = await PDFDocument.create();
 	const prefixedFirstPage = prefixedPdf.addPage();
@@ -155,6 +157,45 @@ try {
 	assert.equal(prefixedParts[0].pageStart, 1);
 	assert.equal(prefixedParts[0].pageEnd, 2);
 	assert.equal(prefixedParts[0].isSplit, false);
+
+	const scannedCanvas = createCanvas(1400, 1800);
+	const scannedContext = scannedCanvas.getContext('2d');
+	scannedContext.fillStyle = '#ffffff';
+	scannedContext.fillRect(0, 0, scannedCanvas.width, scannedCanvas.height);
+	scannedContext.fillStyle = '#111111';
+	scannedContext.font = 'bold 42px Arial';
+	scannedContext.fillText("CONTRAT D'ENGAGEMENT A DUREE DETERMINEE DIT D'USAGE", 80, 120);
+	scannedContext.font = '30px Arial';
+	[
+		'Compagnie Ultreia',
+		'Monsieur Test est engage en qualite de Artiste visuel.',
+		'Le present engagement couvre la periode du 06/09/26 au 08/09/26.',
+		'Nombre de jour(s) ou cachet(s) : 3 (soit 24 heure(s)).',
+		'Il sera alloue a Monsieur Test a titre de salaire la somme de 480,00 euros bruts.'
+	].forEach((line, index) => scannedContext.fillText(line, 80, 240 + index * 70));
+
+	const scannedPdf = await PDFDocument.create();
+	const scannedImage = await scannedPdf.embedPng(scannedCanvas.toBuffer('image/png'));
+	const scannedPage = scannedPdf.addPage([700, 900]);
+	scannedPage.drawImage(scannedImage, { x: 0, y: 0, width: 700, height: 900 });
+	const scannedParts = await pdfParts.splitAndClassifyDocument(
+		'scan.pdf',
+		'application/pdf',
+		Buffer.from(await scannedPdf.save()),
+		'Autre'
+	);
+	const scannedAnalysis = documentAnalysis.analyzeDocumentText(scannedParts[0].text);
+
+	assert.equal(scannedParts[0].kind, 'Contrat');
+	assert.match(scannedParts[0].extractionNotes.join(' '), /OCR française appliquée/);
+	assert.deepEqual(scannedAnalysis.fields, {
+		startDate: '2026-09-06',
+		endDate: '2026-09-08',
+		hours: 24,
+		employmentStatus: 'Artiste visuel',
+		grossSalary: 480,
+		grossHourlyRate: 20
+	});
 
 	console.log('Document analysis regression tests passed.');
 } finally {

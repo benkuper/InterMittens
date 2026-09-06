@@ -763,11 +763,10 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 		}
 
 		const analysis = analyzeDocumentText(part.text);
-		const hintedAnalysis = applyFileNameFieldHints(
-			part.fileName || file.name,
-			analysis.fields,
-			analysis.notes
-		);
+		const hintedAnalysis = applyFileNameFieldHints(part.fileName || file.name, analysis.fields, [
+			...part.extractionNotes,
+			...analysis.notes
+		]);
 		preparedDocumentTexts.set(id, part.text);
 		preparedDocuments.push({
 			id,

@@ -23,6 +23,13 @@ data/documents/
 
 Le dossier `data/` doit être persistant et sauvegardé. Il est ignoré par Git.
 
+## Import de documents
+
+Les PDF numériques et les PDF scannés sont analysés automatiquement. Lorsqu'une page ne
+contient pas assez de texte extractible, une OCR française locale est appliquée avant la
+classification et la détection des dates, heures, cachets et montants. L'analyse OCR est limitée
+aux 20 premières pages scannées d'un même fichier.
+
 ## Hébergement en ligne
 
 À mettre sur le serveur:

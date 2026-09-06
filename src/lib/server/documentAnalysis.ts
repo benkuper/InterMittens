@@ -17,8 +17,19 @@ export type DocumentAnalysis = {
 	notes: string[];
 };
 
+export type PdfTextExtraction = {
+	pages: string[];
+	text: string;
+	ocrPageNumbers: number[];
+	ocrAttemptedPageNumbers: number[];
+	ocrSkippedPageNumbers: number[];
+	ocrFailed: boolean;
+};
+
 const moneyPattern = String.raw`([0-9]{1,3}(?:[\s.][0-9]{3})*(?:[,.][0-9]{1,2})?|[0-9]+(?:[,.][0-9]{1,2})?)`;
 const numberPattern = String.raw`([0-9]+(?:[,.][0-9]+)?)`;
+const minimumNativePageCharacters = 32;
+const maximumOcrPages = 20;
 
 function toNumber(value: string | undefined) {
 	if (!value) return undefined;
@@ -92,7 +103,13 @@ export function extractPdfTextFromBuffer(buffer: Buffer) {
 	return normalizeText(strings.join('\n'));
 }
 
-export async function extractPdfPagesText(buffer: Buffer) {
+function usefulTextLength(text: string) {
+	return text.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+}
+
+export async function extractPdfDocumentText(buffer: Buffer): Promise<PdfTextExtraction> {
+	const formText = await extractPdfFormText(buffer);
+
 	try {
 		const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
 		const document = await pdfjs.getDocument({
@@ -100,30 +117,78 @@ export async function extractPdfPagesText(buffer: Buffer) {
 			disableFontFace: true,
 			useSystemFonts: true
 		}).promise;
-		const pages: string[] = [];
 
-		for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-			const page = await document.getPage(pageNumber);
-			const content = await page.getTextContent();
-			const text = content.items
-				.map((item) => ('str' in item ? item.str : ''))
-				.filter(Boolean)
-				.join(' ');
-			pages.push(normalizeText(text));
+		try {
+			const nativePages: string[] = [];
+
+			for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+				const page = await document.getPage(pageNumber);
+				const content = await page.getTextContent();
+				const text = content.items
+					.map((item) => ('str' in item ? item.str : ''))
+					.filter(Boolean)
+					.join(' ');
+				nativePages.push(normalizeText(text));
+				page.cleanup();
+			}
+
+			const sparsePageNumbers = nativePages
+				.map((text, index) => ({ pageNumber: index + 1, text }))
+				.filter(({ text }) => usefulTextLength(text) < minimumNativePageCharacters)
+				.map(({ pageNumber }) => pageNumber);
+			const ocrAttemptedPageNumbers = sparsePageNumbers.slice(0, maximumOcrPages);
+			const ocrSkippedPageNumbers = sparsePageNumbers.slice(maximumOcrPages);
+			let ocrPages = new Map<number, string>();
+			let ocrFailed = false;
+
+			if (ocrAttemptedPageNumbers.length) {
+				try {
+					const { recognizePdfPages } = await import('$lib/server/pdfOcr');
+					ocrPages = await recognizePdfPages(document, ocrAttemptedPageNumbers);
+				} catch (cause) {
+					ocrFailed = true;
+					console.error('OCR PDF indisponible:', cause);
+				}
+			}
+
+			const pages = nativePages.map((nativeText, index) => {
+				const ocrText = normalizeText(ocrPages.get(index + 1) ?? '');
+				return ocrText || nativeText;
+			});
+			const text = normalizeText([...pages.filter(Boolean), formText].filter(Boolean).join('\n\n'));
+
+			return {
+				pages,
+				text: text || extractPdfTextFromBuffer(buffer),
+				ocrPageNumbers: [...ocrPages.entries()]
+					.filter(([, text]) => usefulTextLength(text) > 0)
+					.map(([pageNumber]) => pageNumber),
+				ocrAttemptedPageNumbers,
+				ocrSkippedPageNumbers,
+				ocrFailed
+			};
+		} finally {
+			await document.cleanup();
 		}
-
-		await document.cleanup();
-		return pages;
 	} catch {
-		return [];
+		const text = formText || extractPdfTextFromBuffer(buffer);
+		return {
+			pages: text ? [text] : [],
+			text,
+			ocrPageNumbers: [],
+			ocrAttemptedPageNumbers: [],
+			ocrSkippedPageNumbers: [],
+			ocrFailed: false
+		};
 	}
 }
 
+export async function extractPdfPagesText(buffer: Buffer) {
+	return (await extractPdfDocumentText(buffer)).pages;
+}
+
 export async function extractPdfTextFromBufferAsync(buffer: Buffer) {
-	const pages = await extractPdfPagesText(buffer);
-	const formText = await extractPdfFormText(buffer);
-	const text = normalizeText([...pages.filter(Boolean), formText].filter(Boolean).join('\n\n'));
-	return text || extractPdfTextFromBuffer(buffer);
+	return (await extractPdfDocumentText(buffer)).text;
 }
 
 export function classifyDocumentKind(text: string, fallback: DocumentKind) {
@@ -380,6 +445,7 @@ function analyzeGusoFields(text: string) {
 
 function matchEmploymentStatus(text: string) {
 	const candidates = [
+		{ pattern: /\bartiste\s+visuel(?:le)?\b/i, label: 'Artiste visuel' },
 		{ pattern: /\bartiste\s+de\s+cirque\b/i, label: 'Artiste de cirque' },
 		{ pattern: /\bartiste\s+musicien(?:ne)?\b/i, label: 'Artiste musicien' },
 		{ pattern: /\bartiste\s+choregraphique\b/i, label: 'Artiste choregraphique' },
@@ -415,6 +481,13 @@ function matchDatedWorkHours(text: string) {
 function matchWorkedHours(text: string) {
 	const datedWorkHours = matchDatedWorkHours(text);
 	if (datedWorkHours !== undefined) return datedWorkHours;
+
+	const summarizedHoursPattern = new RegExp(
+		`(?:nombre\\s+de\\s+)?(?:jour(?:s|\\(s\\))?|cachet(?:s|\\(s\\))?)[\\s\\S]{0,80}?\\bsoit\\s+${numberPattern}\\s*h(?:eure)?(?:s|\\(s\\))?\\b`,
+		'i'
+	);
+	const summarizedHours = toNumber(text.match(summarizedHoursPattern)?.[1]);
+	if (summarizedHours !== undefined) return summarizedHours;
 
 	const periodBasePattern = new RegExp(
 		`(?:cumul\\s+periode\\s+base|base\\s+[^\\n]{0,80}heures)\\s+[^\\n]{0,80}heures\\s+${numberPattern}`,
