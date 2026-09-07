@@ -237,6 +237,7 @@ export function createIntermittensState(initialData: AppData) {
 	let companySuggestionState = $state<CompanySuggestion[]>([]);
 	let areUploadState = $state('');
 	let cleanupFilesState = $state('');
+	let deletingDocumentIds = $state<Record<string, boolean>>({});
 	let syncState = $state<'idle' | 'checking' | 'blocked' | 'ready'>('idle');
 	let dirty = $state(false);
 	let changeRevision = $state(0);
@@ -597,6 +598,39 @@ export function createIntermittensState(initialData: AppData) {
 		}
 
 		touch();
+	}
+
+	async function removeDocument(document: ContractDocument) {
+		if (!window.confirm(`Supprimer définitivement le document « ${document.fileName} » ?`)) return;
+
+		deletingDocumentIds[document.id] = true;
+
+		try {
+			const response = await fetch(`${base}/api/documents/${encodeURIComponent(document.id)}`, {
+				method: 'DELETE'
+			});
+			const payload = await readServerPayload<DataMutationPayload>(response, {
+				message: 'Réponse serveur illisible.'
+			});
+
+			if (!response.ok || !payload.data) {
+				window.alert(payload.message ?? 'Suppression du document impossible.');
+				return;
+			}
+
+			appData.documents = appData.documents.filter((item) => item.id !== document.id);
+			for (const contract of appData.contracts) {
+				if (!contract.documentIds.includes(document.id)) continue;
+
+				contract.documentIds = contract.documentIds.filter((id) => id !== document.id);
+				contract.updatedAt = new Date().toISOString();
+			}
+			touch();
+		} catch {
+			window.alert('Erreur réseau pendant la suppression du document.');
+		} finally {
+			delete deletingDocumentIds[document.id];
+		}
 	}
 
 	function applyFields(contract: Contract, fields: Partial<ContractFields>) {
@@ -1145,6 +1179,9 @@ export function createIntermittensState(initialData: AppData) {
 		get cleanupFilesState() {
 			return cleanupFilesState;
 		},
+		get deletingDocumentIds() {
+			return deletingDocumentIds;
+		},
 		get dirty() {
 			return dirty;
 		},
@@ -1216,6 +1253,7 @@ export function createIntermittensState(initialData: AppData) {
 		updateRates,
 		setStatus,
 		changeDocumentKind,
+		removeDocument,
 		applyFields,
 		uploadDocument,
 		createContractFromDocument,

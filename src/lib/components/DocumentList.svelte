@@ -34,7 +34,7 @@
 	<div class="document-list">
 		{#each state.documentsFor(contract) as document}
 			<article class="document-item">
-				<div>
+				<div class="document-main">
 					<select
 						class="document-kind-select"
 						value={document.kind}
@@ -63,6 +63,16 @@
 						Appliquer
 					</button>
 				{/if}
+				<button
+					class="danger"
+					type="button"
+					title={`Supprimer ${document.fileName}`}
+					aria-label={`Supprimer le document ${document.fileName}`}
+					disabled={state.deletingDocumentIds[document.id]}
+					onclick={() => state.removeDocument(document)}
+				>
+					{state.deletingDocumentIds[document.id] ? 'Suppression...' : 'Supprimer'}
+				</button>
 				{#if document.extractedTextPreview}
 					<details>
 						<summary>Texte extrait</summary>
