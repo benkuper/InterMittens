@@ -2,6 +2,7 @@
 	import { statuses, type IntermittensState } from '$lib/app/state.svelte';
 	import DateInput from '$lib/components/DateInput.svelte';
 	import DocumentList from '$lib/components/DocumentList.svelte';
+	import DocumentPresence from '$lib/components/DocumentPresence.svelte';
 	import ImportFeedback from '$lib/components/ImportFeedback.svelte';
 	import { formatCurrency, formatDate, formatNumber } from '$lib/format';
 	import type { Contract, IntermittencePeriod } from '$lib/types';
@@ -198,16 +199,19 @@
 						{appState.companyName(contract.companyId)} · {appState.projectName(contract.projectId)} ·
 						{formatDate(contract.startDate)}
 					</span>
-					<i>
-						{#if contract.netSalary > 0}
-							{formatCurrency(contract.netSalary)} net
-						{:else if contract.grossSalary > 0}
-							{formatCurrency(contract.grossSalary)} brut
-						{:else}
-							Salaire non renseigné
-						{/if}
-						· {formatNumber(contract.hours, 0)} h
-					</i>
+					<div class="contract-list-footer">
+						<i>
+							{#if contract.netSalary > 0}
+								{formatCurrency(contract.netSalary)} net
+							{:else if contract.grossSalary > 0}
+								{formatCurrency(contract.grossSalary)} brut
+							{:else}
+								Salaire non renseigné
+							{/if}
+							· {formatNumber(contract.hours, 0)} h
+						</i>
+						<DocumentPresence documents={appState.documentsFor(contract)} />
+					</div>
 				</button>
 			{/each}
 			{#if displayedContracts.length === 0}

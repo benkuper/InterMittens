@@ -572,8 +572,8 @@ tr.has-contracts.selected {
 	text-align: right;
 }
 
-.nested-table th:last-child,
-.nested-table td:last-child {
+.nested-table th:nth-last-child(-n + 2),
+.nested-table td:nth-last-child(-n + 2) {
 	text-align: left;
 }
 
@@ -603,6 +603,10 @@ tr.has-contracts.selected {
 
 .contract-col-status {
 	width: 8%;
+}
+
+.contract-col-documents {
+	width: 12%;
 }
 
 .month-label {
@@ -675,6 +679,43 @@ tr.has-contracts.selected {
 
 .month-focus strong {
 	font-size: 19px;
+}
+
+.document-completeness {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	min-height: 36px;
+	margin-bottom: 10px;
+	border: 1px solid rgba(255, 255, 255, 0.07);
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.035);
+	color: #aab4af;
+	padding: 7px 10px;
+	font-size: 12px;
+}
+
+.document-completeness.complete {
+	border-color: rgba(103, 216, 160, 0.22);
+	background: rgba(103, 216, 160, 0.07);
+	color: #9ae8bd;
+}
+
+.document-completeness.incomplete {
+	border-color: rgba(217, 177, 95, 0.25);
+	background: rgba(217, 177, 95, 0.075);
+	color: #e7ce93;
+}
+
+.document-completeness-mark {
+	display: inline-grid;
+	flex: 0 0 auto;
+	width: 20px;
+	height: 20px;
+	place-items: center;
+	border: 1px solid currentColor;
+	border-radius: 999px;
+	font-weight: 800;
 }
 
 .declaration-panel {
@@ -964,6 +1005,13 @@ tr.has-contracts.selected {
 .list i {
 	font-style: normal;
 	font-size: 12px;
+}
+
+.contract-list-footer {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	justify-content: space-between;
 }
 
 .company-list-title,

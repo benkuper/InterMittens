@@ -2,6 +2,8 @@
 	import { slide } from 'svelte/transition';
 
 	import type { IntermittensState } from '$lib/app/state.svelte';
+	import DocumentPresence from '$lib/components/DocumentPresence.svelte';
+	import { requiredContractDocuments, summarizeContractDocuments } from '$lib/documentPresence';
 	import { formatCurrency, formatDate, formatNumber, formatPreciseCurrency } from '$lib/format';
 	import { buildMonthlyContractBreakdown, monthLabel } from '$lib/stats';
 	import type { MonthlyStats } from '$lib/types';
@@ -20,6 +22,18 @@
 	let allMonthsOpen = $derived(
 		visibleMonthlyStats.length > 0 &&
 			visibleMonthlyStats.every((stats) => openMonths.includes(stats.month))
+	);
+	let statsContracts = $derived.by(() => {
+		const contractsById = new Map(
+			visibleMonthlyStats.flatMap((stats) =>
+				monthContracts(stats.month).map(({ contract }) => [contract.id, contract] as const)
+			)
+		);
+
+		return [...contractsById.values()];
+	});
+	let documentSummary = $derived(
+		summarizeContractDocuments(statsContracts, appState.appData.documents)
 	);
 
 	function createEmptyMonthStats(month: string): MonthlyStats {
@@ -117,6 +131,36 @@
 		</div>
 	</div>
 
+	<div
+		class="document-completeness"
+		class:complete={documentSummary.totalContracts > 0 && documentSummary.incompleteContracts === 0}
+		class:incomplete={documentSummary.incompleteContracts > 0}
+	>
+		{#if documentSummary.totalContracts === 0}
+			<span class="document-completeness-mark" aria-hidden="true">–</span>
+			<span>Aucun contrat à contrôler sur cette période.</span>
+		{:else if documentSummary.incompleteContracts === 0}
+			<span class="document-completeness-mark" aria-hidden="true">✓</span>
+			<span>
+				{documentSummary.totalContracts === 1
+					? 'Tous les documents existent pour le contrat de la période.'
+					: `Tous les documents existent pour les ${documentSummary.totalContracts} contrats de la période.`}
+			</span>
+		{:else}
+			<span class="document-completeness-mark" aria-hidden="true">!</span>
+			<span>
+				Documents manquants pour {documentSummary.incompleteContracts} contrat{documentSummary.incompleteContracts >
+				1
+					? 's'
+					: ''} sur {documentSummary.totalContracts} :
+				{requiredContractDocuments
+					.filter(({ kind }) => documentSummary.missingByKind[kind] > 0)
+					.map(({ kind, shortLabel }) => `${shortLabel} × ${documentSummary.missingByKind[kind]}`)
+					.join(' · ')}.
+			</span>
+		{/if}
+	</div>
+
 	<div class="table-wrap tall">
 		<table>
 			<thead>
@@ -175,6 +219,7 @@
 												<col class="contract-col-money" />
 												<col class="contract-col-money" />
 												<col class="contract-col-status" />
+												<col class="contract-col-documents" />
 											</colgroup>
 											<thead>
 												<tr>
@@ -187,6 +232,7 @@
 													<th>Brut mois</th>
 													<th>Cot.</th>
 													<th>Statut</th>
+													<th>Documents</th>
 												</tr>
 											</thead>
 											<tbody>
@@ -211,6 +257,11 @@
 															<span class="status" data-status={detail.contract.status}>
 																{detail.contract.status}
 															</span>
+														</td>
+														<td>
+															<DocumentPresence
+																documents={appState.documentsFor(detail.contract)}
+															/>
 														</td>
 													</tr>
 												{/each}

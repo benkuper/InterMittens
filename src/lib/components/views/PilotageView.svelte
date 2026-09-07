@@ -1,6 +1,7 @@
 ﻿<script lang="ts">
 	import type { IntermittensState } from '$lib/app/state.svelte';
 	import Calendar from '$lib/components/Calendar.svelte';
+	import DocumentPresence from '$lib/components/DocumentPresence.svelte';
 	import { formatCurrency, formatDate, formatNumber } from '$lib/format';
 	import ImportFeedback from '$lib/components/ImportFeedback.svelte';
 	import { buildMonthlyContractBreakdown, contractRecognizedHours, monthLabel } from '$lib/stats';
@@ -127,6 +128,7 @@
 						<th>Heures</th>
 						<th>Net</th>
 						<th>Statut</th>
+						<th>Documents</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -147,11 +149,12 @@
 							<td>{formatNumber(contractRecognizedHours(contract), 0)}</td>
 							<td>{formatCurrency(contract.netSalary)}</td>
 							<td><span class="status" data-status={contract.status}>{contract.status}</span></td>
+							<td><DocumentPresence documents={appState.documentsFor(contract)} /></td>
 						</tr>
 					{/each}
 					{#if appState.recentContracts.length === 0}
 						<tr>
-							<td colspan="6" class="empty">Aucun contrat pour le moment.</td>
+							<td colspan="7" class="empty">Aucun contrat pour le moment.</td>
 						</tr>
 					{/if}
 				</tbody>
