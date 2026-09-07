@@ -93,6 +93,11 @@ export type ContractImportFeedback = {
 	total: number;
 	succeeded: number;
 	failed: number;
+	contractsCreated: number;
+	contractUpdates: number;
+	documentsAdded: number;
+	unchangedFiles: number;
+	periodsUpdated: number;
 	items: ContractImportFeedbackItem[];
 	canUndo: boolean;
 };
@@ -645,8 +650,13 @@ export function createIntermittensState(initialData: AppData) {
 		if (fields.cachets) labels.push(`${format(fields.cachets)} cachet(s)`);
 		if (fields.grossSalary) labels.push(`${format(fields.grossSalary)} € brut`);
 		if (fields.netSalary) labels.push(`${format(fields.netSalary)} € net`);
+		if (fields.taxableNetSalary) {
+			labels.push(`${format(fields.taxableNetSalary)} € net imposable`);
+		}
+		if (fields.contributions) labels.push(`${format(fields.contributions)} € cotisations`);
+		if (fields.netHourlyRate) labels.push(`${format(fields.netHourlyRate)} €/h net`);
 
-		return labels.slice(0, 3);
+		return labels.slice(0, 6);
 	}
 
 	function usefulImportWarnings(notes: string[]) {
@@ -689,11 +699,21 @@ export function createIntermittensState(initialData: AppData) {
 			total: files.length,
 			succeeded: 0,
 			failed: 0,
+			contractsCreated: 0,
+			contractUpdates: 0,
+			documentsAdded: 0,
+			unchangedFiles: 0,
+			periodsUpdated: 0,
 			items: [],
 			canUndo: false
 		};
 
 		let importedCount = 0;
+		let contractsCreated = 0;
+		let contractUpdates = 0;
+		let documentsAdded = 0;
+		let unchangedFiles = 0;
+		let periodsUpdated = 0;
 		let lastRoutedContractId = '';
 		let sawPeriodImport = false;
 		const items: ContractImportFeedbackItem[] = [];
@@ -767,6 +787,14 @@ export function createIntermittensState(initialData: AppData) {
 			mergeCompanySuggestions(payload.companySuggestions);
 
 			const routedContractId = payload.routedContractId || payload.createdContractId || '';
+			const addedDocumentCount = (payload.documentIds ?? []).length;
+			const hasAppliedFields = Object.keys(payload.appliedFields ?? {}).length > 0;
+			documentsAdded += addedDocumentCount;
+			periodsUpdated += (payload.periodIds ?? []).length;
+			if (payload.createdContractId) contractsCreated += 1;
+			else if (routedContractId && (addedDocumentCount > 0 || hasAppliedFields))
+				contractUpdates += 1;
+			else if (routedContractId) unchangedFiles += 1;
 			if (routedContractId) {
 				lastRoutedContractId = routedContractId;
 				uploadState[routedContractId] = payload.createdContractId
@@ -794,7 +822,13 @@ export function createIntermittensState(initialData: AppData) {
 				kind:
 					kinds.join(' + ') || ((payload.periodIds ?? []).length ? 'Notification ARE' : 'Document'),
 				destination: routedContract
-					? `${payload.createdContractId ? 'Nouveau contrat' : 'Classé dans'} · ${routedContract.title}`
+					? `${
+							payload.createdContractId
+								? 'Contrat créé'
+								: addedDocumentCount > 0 || hasAppliedFields
+									? 'Contrat mis à jour'
+									: 'Contrat inchangé'
+						} · ${routedContract.title}`
 					: 'Intermittence mise à jour',
 				fields: importFieldLabels(detectedFields),
 				warnings: usefulImportWarnings(payload.analysis.notes ?? [])
@@ -822,7 +856,7 @@ export function createIntermittensState(initialData: AppData) {
 			title:
 				importedCount === 0
 					? 'Import impossible'
-					: `${importedCount} document${importedCount > 1 ? 's' : ''} importé${importedCount > 1 ? 's' : ''}`,
+					: `${importedCount} fichier${importedCount > 1 ? 's traités' : ' traité'}`,
 			summary:
 				failedCount === 0
 					? 'Tous les fichiers ont été analysés et classés automatiquement.'
@@ -831,6 +865,11 @@ export function createIntermittensState(initialData: AppData) {
 			total: files.length,
 			succeeded: importedCount,
 			failed: failedCount,
+			contractsCreated,
+			contractUpdates,
+			documentsAdded,
+			unchangedFiles,
+			periodsUpdated,
 			items,
 			canUndo: importedCount > 0
 		};
@@ -896,6 +935,11 @@ export function createIntermittensState(initialData: AppData) {
 				total: previousFeedback.total,
 				succeeded: 0,
 				failed: 0,
+				contractsCreated: 0,
+				contractUpdates: 0,
+				documentsAdded: 0,
+				unchangedFiles: 0,
+				periodsUpdated: 0,
 				items: [],
 				canUndo: false
 			};

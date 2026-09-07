@@ -6,6 +6,11 @@ import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { normalizeCompanyColor } from '$lib/companyColors';
 import { analyzeAreNotification } from '$lib/server/areAnalysis';
 import { searchCompanies } from '$lib/server/companySearch';
+import {
+	deriveMissingPayFields,
+	findProjectForProduction,
+	importedContractTitle
+} from '$lib/server/contractImport';
 import { analyzeDocumentText } from '$lib/server/documentAnalysis';
 import { documentKindFromFileName, splitAndClassifyDocument } from '$lib/server/pdfParts';
 import {
@@ -245,15 +250,9 @@ function mergeDetectedFields(contract: Contract, fields: Partial<ContractFields>
 		}
 	}
 
-	if (fields.grossSalary && contract.hours && !contract.grossHourlyRate) {
-		contract.grossHourlyRate = Number((contract.grossSalary / contract.hours).toFixed(2));
-		applied.grossHourlyRate = contract.grossHourlyRate;
-	}
-
-	if (fields.netSalary && contract.hours && !contract.netHourlyRate) {
-		contract.netHourlyRate = Number((contract.netSalary / contract.hours).toFixed(2));
-		applied.netHourlyRate = contract.netHourlyRate;
-	}
+	const derivedFields = deriveMissingPayFields(contract);
+	Object.assign(contract, derivedFields);
+	Object.assign(applied, derivedFields);
 
 	contract.updatedAt = new Date().toISOString();
 	return applied;
@@ -510,6 +509,7 @@ function scoreContract(
 	contract: Contract,
 	fields: Partial<ContractFields>,
 	companyId: string,
+	projectId: string,
 	incomingSirets: string[],
 	documents: ContractDocument[],
 	originalFileName: string
@@ -538,6 +538,7 @@ function scoreContract(
 	if (sharedSiret) score += 55;
 	if (exactPeriodMatch) score += 60;
 	else if (overlappingPeriodMatch) score += 34;
+	if (projectId && contract.projectId === projectId) score += 52;
 	if (companyId && contract.companyId === companyId) score += 30;
 	if (fields.startDate && contract.startDate === fields.startDate) score += 28;
 	if (fields.endDate && contract.endDate === fields.endDate) score += 22;
@@ -564,6 +565,7 @@ function findExistingContract(
 	data: AppData,
 	fields: Partial<ContractFields>,
 	companyId: string,
+	projectId: string,
 	incomingSirets: string[],
 	originalFileName: string
 ) {
@@ -575,6 +577,7 @@ function findExistingContract(
 				contract,
 				fields,
 				companyId,
+				projectId,
 				incomingSirets,
 				data.documents.filter((document) => document.contractId === contract.id),
 				originalFileName
@@ -810,9 +813,19 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 		)
 		.join('\n\n');
 	const incomingSirets = extractSirets(combinedText);
+	const productionName =
+		preparedDocuments
+			.find((document) => document.kind === 'Contrat' && document.extractedFields.title)
+			?.extractedFields.title?.trim() ?? '';
 
 	let data = await mutateData((current) => {
 		const detectedCompanyId = detectCompanyId(current, combinedText);
+		const matchedProject = findProjectForProduction(
+			current.projects,
+			productionName,
+			detectedCompanyId
+		);
+		const routedCompanyId = detectedCompanyId || matchedProject?.companyId || '';
 		const knownSirets = new Set(current.companies.map((company) => normalizeDigits(company.siret)));
 		missingCompanySirets = detectedCompanyId
 			? []
@@ -822,18 +835,35 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 
 		let contract = contractId
 			? current.contracts.find((item) => item.id === contractId)
-			: findExistingContract(current, combinedFields, detectedCompanyId, incomingSirets, file.name);
+			: findExistingContract(
+					current,
+					combinedFields,
+					routedCompanyId,
+					matchedProject?.id ?? '',
+					incomingSirets,
+					file.name
+				);
 
 		if (!contract && (createContract || autoRoute) && preparedDocuments.length) {
 			resolvedContractId = targetContractId;
 			contract = createImportedContract(targetContractId, file.name);
-			contract.companyId = detectedCompanyId;
+			contract.companyId = routedCompanyId;
+			contract.projectId = matchedProject?.id ?? '';
 			createdNewContract = true;
 			current.contracts.unshift(contract);
 		} else if (contract) {
 			resolvedContractId = contract.id;
-			if (autoRoute && !contract.companyId && detectedCompanyId)
-				contract.companyId = detectedCompanyId;
+			if (autoRoute && !contract.companyId && routedCompanyId) {
+				contract.companyId = routedCompanyId;
+			}
+			if (
+				autoRoute &&
+				matchedProject &&
+				(!contract.companyId || contract.companyId === matchedProject.companyId)
+			) {
+				contract.projectId = matchedProject.id;
+				if (!contract.companyId) contract.companyId = matchedProject.companyId;
+			}
 		}
 
 		if (!contract && preparedDocuments.length) error(404, 'Contrat introuvable.');
@@ -866,6 +896,32 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 						? 'Statut du contrat passé automatiquement en Payé.'
 						: 'Statut du contrat passé automatiquement en Signé.'
 				);
+			}
+		}
+
+		if (contract && autoRoute) {
+			const linkedProject = current.projects.find((project) => project.id === contract.projectId);
+			const company = current.companies.find((item) => item.id === contract.companyId);
+			const titleSubject =
+				matchedProject?.name ||
+				productionName ||
+				linkedProject?.name ||
+				company?.name ||
+				company?.legalName ||
+				'';
+			const shouldRefreshTitle =
+				createdNewContract || Boolean(productionName) || contract.title.startsWith('Contrat - ');
+
+			if (titleSubject && shouldRefreshTitle) {
+				const nextTitle = importedContractTitle(
+					titleSubject,
+					contract.startDate || combinedFields.startDate || contract.endDate
+				);
+				if (contract.title !== nextTitle) {
+					contract.title = nextTitle;
+					contract.updatedAt = new Date().toISOString();
+					appliedFields.title = nextTitle;
+				}
 			}
 		}
 

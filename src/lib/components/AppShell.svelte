@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import ServerStatus from '$lib/components/ServerStatus.svelte';
 	import type { IntermittensState, Tab } from '$lib/app/state.svelte';
 	import { tabs } from '$lib/app/state.svelte';
 
@@ -81,6 +82,8 @@
 				<button class="ghost-button logout-button" type="submit">Déconnexion</button>
 			</form>
 		</div>
+
+		<ServerStatus />
 
 		<div
 			class="deployment-info"

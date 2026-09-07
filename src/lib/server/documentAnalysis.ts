@@ -17,7 +17,7 @@ export type DocumentAnalysis = {
 	notes: string[];
 };
 
-const moneyPattern = String.raw`([0-9]{1,3}(?:[\s.][0-9]{3})*(?:[,.][0-9]{1,2})?|[0-9]+(?:[,.][0-9]{1,2})?)`;
+const moneyPattern = String.raw`([0-9]{1,3}(?:[\s.][0-9]{3})*(?:[,.][0-9]{1,2})?|[0-9]+(?:[,.][0-9]{1,2})?)(?!\d)`;
 const numberPattern = String.raw`([0-9]+(?:[,.][0-9]+)?)`;
 
 function toNumber(value: string | undefined) {
@@ -518,6 +518,20 @@ function matchExplicitPeriod(text: string) {
 	return undefined;
 }
 
+function matchLabeledWorkPeriod(text: string) {
+	const pattern = new RegExp(
+		String.raw`\bdates?\s+de\s+travail[\s\S]{0,160}?\bdebut\s+(${frenchDatePattern})[\s\S]{0,80}?\bfin\s+(${frenchDatePattern})`,
+		'i'
+	);
+	const match = text.match(pattern);
+	const startDate = parseFrenchDate(match?.[1]);
+	const endDate = parseFrenchDate(match?.[2]);
+
+	return startDate && endDate && isChronologicalPeriod(startDate, endDate)
+		? { startDate, endDate }
+		: undefined;
+}
+
 function matchStructuredPeriod(text: string) {
 	const pattern = /\b([0-3]?\d)\s+([01]?\d)\s+(\d{4})\s+([0-3]?\d)\s+([01]?\d)\s+(\d{4})\b/g;
 	const currentYear = new Date().getFullYear();
@@ -564,6 +578,33 @@ function matchNetSalary(text: string) {
 			)
 		)
 	);
+}
+
+function matchPayrollContributions(text: string) {
+	return matchFirstMoney(
+		text,
+		new RegExp(
+			String.raw`\btotal\s+(?:des\s+)?cotisations\s+et\s+contributions\s+${moneyPattern}`,
+			'i'
+		)
+	);
+}
+
+function matchPayrollGrossSalary(text: string) {
+	return matchFirstMoney(text, new RegExp(String.raw`\bsalaire\s+brut\s+${moneyPattern}`, 'i'));
+}
+
+function matchPayrollTaxableNet(text: string) {
+	const summary = text.match(/\bnet\s+paye\s+([\s\S]{0,600}?)\s+net\s+paye\s*:/i)?.[1];
+	if (!summary) return undefined;
+
+	const amounts = [...summary.matchAll(new RegExp(moneyPattern, 'g'))]
+		.map((match) => toNumber(match[1]))
+		.filter((value): value is number => value !== undefined);
+
+	// Tableau récapitulatif : net payé, puis brut/base SS/plafond SS (mensuel et annuel),
+	// puis net imposable mensuel.
+	return amounts[7];
 }
 
 function matchContractGrossSalary(text: string) {
@@ -716,12 +757,14 @@ function analyzeMovinmotionPayroll(text: string) {
 		'base imposable',
 		'net declarable'
 	]);
-	const contributions = matchMoney(searchable, [
-		'cotisations salariales',
-		'total cotisations',
-		'charges salariales',
-		'cotisations'
-	]);
+	const contributions =
+		matchPayrollContributions(searchable) ??
+		matchMoney(searchable, [
+			'cotisations salariales',
+			'total cotisations',
+			'charges salariales',
+			'cotisations'
+		]);
 
 	if (grossSalary !== undefined) fields.grossSalary = grossSalary;
 	if (netSalary !== undefined) fields.netSalary = netSalary;
@@ -840,7 +883,10 @@ export function analyzeDocumentText(text: string): DocumentAnalysis {
 		};
 	}
 
-	const detectedPeriod = matchExplicitPeriod(searchable) ?? matchStructuredPeriod(searchable);
+	const detectedPeriod =
+		matchLabeledWorkPeriod(searchable) ??
+		matchExplicitPeriod(searchable) ??
+		matchStructuredPeriod(searchable);
 	const startDate = detectedPeriod?.startDate ?? matchDate(searchable, ['date de debut', 'debut']);
 	const endDate = detectedPeriod?.endDate ?? matchDate(searchable, ['date de fin', 'fin']);
 	const detectedHours =
@@ -867,6 +913,7 @@ export function analyzeDocumentText(text: string): DocumentAnalysis {
 	const hours = detectedHours ?? cachetHours;
 	const grossSalary =
 		matchContractGrossSalary(searchable) ??
+		matchPayrollGrossSalary(searchable) ??
 		matchMoney(searchable, [
 			'salaire brut',
 			'brut soumis',
@@ -875,18 +922,17 @@ export function analyzeDocumentText(text: string): DocumentAnalysis {
 			'montant brut'
 		]);
 	const netSalary = matchNetSalary(searchable);
-	const taxableNetSalary = matchMoney(searchable, [
-		'net imposable',
-		'net fiscal',
-		'imposable',
-		'net declarable'
-	]);
-	const contributions = matchMoney(searchable, [
-		'cotisations salariales',
-		'total cotisations',
-		'charges salariales',
-		'cotisations'
-	]);
+	const taxableNetSalary =
+		matchPayrollTaxableNet(searchable) ??
+		matchMoney(searchable, ['net imposable', 'net fiscal', 'imposable', 'net declarable']);
+	const contributions =
+		matchPayrollContributions(searchable) ??
+		matchMoney(searchable, [
+			'cotisations salariales',
+			'total cotisations',
+			'charges salariales',
+			'cotisations'
+		]);
 
 	if (startDate) fields.startDate = startDate;
 	if (endDate) fields.endDate = endDate;

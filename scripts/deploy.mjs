@@ -403,7 +403,13 @@ async function removeRemoteDir(client, remotePath) {
 	if (exists) await client.rmdir(remotePath, true);
 }
 
-async function remoteFileEquals(client, remotePath, localPath) {
+function comparablePackageLock(lock) {
+	delete lock.version;
+	if (lock.packages?.['']) delete lock.packages[''].version;
+	return lock;
+}
+
+async function remoteDependenciesMatch(client, remotePath, localPath) {
 	if (!(await client.exists(remotePath))) return false;
 
 	try {
@@ -415,7 +421,9 @@ async function remoteFileEquals(client, remotePath, localPath) {
 			? remoteData
 			: Buffer.from(String(remoteData), 'utf-8');
 
-		return remoteBuffer.equals(localData);
+		const remoteLock = comparablePackageLock(JSON.parse(remoteBuffer.toString('utf-8')));
+		const localLock = comparablePackageLock(JSON.parse(localData.toString('utf-8')));
+		return JSON.stringify(remoteLock) === JSON.stringify(localLock);
 	} catch {
 		return false;
 	}
@@ -433,18 +441,18 @@ async function shouldUploadNodeModules(client, remoteRoot, stageDir, mode, clean
 		return true;
 	}
 
-	const packageLockMatches = await remoteFileEquals(
+	const packageLockMatches = await remoteDependenciesMatch(
 		client,
 		remoteJoin(remoteRoot, 'package-lock.json'),
 		path.join(stageDir, 'package-lock.json')
 	);
 
 	if (!packageLockMatches) {
-		console.log('Remote package-lock differs; uploading production dependencies.');
+		console.log('Remote dependency lock differs; uploading production dependencies.');
 		return true;
 	}
 
-	console.log('Skipping node_modules upload; remote dependencies already match package-lock.json.');
+	console.log('Skipping node_modules upload; remote dependencies already match.');
 	return false;
 }
 

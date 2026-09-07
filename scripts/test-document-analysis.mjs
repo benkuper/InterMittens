@@ -10,6 +10,7 @@ const server = await createServer({
 
 try {
 	const documentAnalysis = await server.ssrLoadModule('/src/lib/server/documentAnalysis.ts');
+	const contractImport = await server.ssrLoadModule('/src/lib/server/contractImport.ts');
 	const pdfParts = await server.ssrLoadModule('/src/lib/server/pdfParts.ts');
 	assert.equal(pdfParts.documentKindFromFileName('cs-2026-08.pdf', 'Autre'), 'Congé Spectacle');
 	assert.equal(pdfParts.documentKindFromFileName('aem-2026-08.pdf', 'Autre'), 'AEM');
@@ -66,6 +67,71 @@ try {
 		grossHourlyRate: 39.2
 	});
 
+	const congeSpectacleText = [
+		"CERTIFICAT D'EMPLOI DESTINÉ AU SALARIÉ",
+		'N° SIRET 532259603 00027',
+		'ZORBA PRODUCTION',
+		'DATES DE TRAVAIL NB JOURS OU CACHETS',
+		'DEBUT 20/07/2026 FIN 31/07/2026 10',
+		'SALAIRE BRUT 2744'
+	].join(' ');
+	assert.deepEqual(documentAnalysis.analyzeDocumentText(congeSpectacleText).fields, {
+		startDate: '2026-07-20',
+		endDate: '2026-07-31',
+		grossSalary: 2744
+	});
+
+	const projects = [
+		{
+			id: 'project-katabasis',
+			companyId: 'company-zorba',
+			name: 'Kàta   basis',
+			role: '',
+			location: '',
+			startDate: '',
+			endDate: '',
+			notes: ''
+		}
+	];
+	assert.equal(
+		contractImport.findProjectForProduction(projects, 'KATABASIS', 'company-zorba')?.id,
+		'project-katabasis'
+	);
+	assert.equal(
+		contractImport.findProjectForProduction(projects, 'Katabasis', 'other-company'),
+		undefined
+	);
+	assert.equal(
+		contractImport.importedContractTitle('Kàta   basis', '2026-07-20'),
+		'Kàta basis · juillet 2026'
+	);
+	assert.equal(
+		contractImport.importedContractTitle('Zorba Production', '2026-07-20'),
+		'Zorba Production · juillet 2026'
+	);
+	assert.deepEqual(
+		contractImport.deriveMissingPayFields({
+			hours: 70,
+			netSalary: 2129.68,
+			grossSalary: 2744,
+			contributions: 614.32,
+			netHourlyRate: 0,
+			grossHourlyRate: 39.2
+		}),
+		{ netHourlyRate: 30.42 }
+	);
+	assert.deepEqual(
+		contractImport.deriveMissingPayFields({
+			hours: 147,
+			netSalary: 4438.45,
+			grossSalary: 5762.4,
+			contributions: 1323.95,
+			netHourlyRate: 0,
+			grossHourlyRate: 39.2
+		}),
+		{ netHourlyRate: 30.19 }
+	);
+
 	const movinmotionPayslipText = [
 		'Movinmotion',
 		'Fiche de paie',
@@ -83,6 +149,36 @@ try {
 		1500
 	);
 	assert.equal(documentAnalysis.analyzeDocumentText(movinmotionPayslipText).fields.netSalary, 1164);
+
+	const zorbaPayslipText = [
+		'BULLETIN DE SALAIRE',
+		'Période : Août 2026',
+		'Du 03/08/2026 au 31/08/2026',
+		'Salaire brut 5 762.40',
+		'Total des cotisations et contributions 1 323.95 3 753.07',
+		'Montant net social 4 438.45',
+		'Net à payer avant impôt sur le revenu 4 438.45',
+		'Impôt sur le revenu prélevé à la source 4 604.90 - 4.7000 216.43',
+		'Net payé 4 222.02 5 762.40 5 762.40 3 746.61 3 746.61 3 746.61 3 746.61 4 604.90 6 813.84',
+		'Net payé : 4 222.02 euros'
+	].join(' ');
+	const zorbaPayslipFields = documentAnalysis.analyzeDocumentText(zorbaPayslipText).fields;
+	assert.equal(zorbaPayslipFields.grossSalary, 5762.4);
+	assert.equal(zorbaPayslipFields.contributions, 1323.95);
+	assert.equal(zorbaPayslipFields.netSalary, 4438.45);
+	assert.equal(zorbaPayslipFields.taxableNetSalary, 4604.9);
+
+	const julyPayslipText = [
+		'BULLETIN DE SALAIRE Du 20/07/2026 au 31/07/2026',
+		'Salaire brut 2 744.00',
+		'Total des cotisations et contributions 614.32 1 766.94',
+		'Montant net social 2 129.68',
+		'Net payé 2 129.68 2 744.00 2 744.00 1 550.32 1 550.32 1 550.32 1 550.32 2 208.94 2 208.94',
+		'Net payé : 2 129.68 euros'
+	].join(' ');
+	const julyPayslipFields = documentAnalysis.analyzeDocumentText(julyPayslipText).fields;
+	assert.equal(julyPayslipFields.netSalary, 2129.68);
+	assert.equal(julyPayslipFields.taxableNetSalary, 2208.94);
 
 	const movinmotionCongeSpectacleText = [
 		'Movinmotion',

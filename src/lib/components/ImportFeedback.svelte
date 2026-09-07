@@ -68,9 +68,43 @@
 			</div>
 		{:else if feedback.items.length}
 			<div class="import-stats" aria-label="Bilan de l’import">
-				<span class="import-stat success-stat">{feedback.succeeded} réussi(s)</span>
+				<span class="import-stat success-stat">
+					{feedback.succeeded} fichier{feedback.succeeded > 1 ? 's traités' : ' traité'}
+				</span>
+				{#if feedback.contractsCreated}
+					<span class="import-stat success-stat">
+						{feedback.contractsCreated} contrat{feedback.contractsCreated > 1 ? 's créés' : ' créé'}
+					</span>
+				{/if}
+				{#if feedback.contractUpdates}
+					<span class="import-stat success-stat">
+						{feedback.contractUpdates} mise{feedback.contractUpdates > 1 ? 's' : ''} à jour de contrat{feedback.contractUpdates >
+						1
+							? 's'
+							: ''}
+					</span>
+				{/if}
+				{#if feedback.documentsAdded}
+					<span class="import-stat">
+						{feedback.documentsAdded} document{feedback.documentsAdded > 1
+							? 's ajoutés'
+							: ' ajouté'}
+					</span>
+				{/if}
+				{#if feedback.periodsUpdated}
+					<span class="import-stat">
+						{feedback.periodsUpdated} période{feedback.periodsUpdated > 1 ? 's mises' : ' mise'} à jour
+					</span>
+				{/if}
+				{#if feedback.unchangedFiles}
+					<span class="import-stat">
+						{feedback.unchangedFiles} fichier{feedback.unchangedFiles > 1 ? 's' : ''} sans modification
+					</span>
+				{/if}
 				{#if feedback.failed}
-					<span class="import-stat error-stat">{feedback.failed} échec(s)</span>
+					<span class="import-stat error-stat">
+						{feedback.failed} échec{feedback.failed > 1 ? 's' : ''}
+					</span>
 				{/if}
 			</div>
 

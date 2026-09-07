@@ -296,6 +296,65 @@ nav button.active,
 	color: #ff8d8d;
 }
 
+.server-status {
+	display: grid;
+	gap: 7px;
+	border-top: 1px solid rgba(255, 255, 255, 0.08);
+	padding-top: 10px;
+}
+
+.server-status-row {
+	display: grid;
+	grid-template-columns: 8px auto minmax(0, 1fr);
+	gap: 7px;
+	align-items: center;
+	color: #8e9993;
+	font-size: 11px;
+}
+
+.server-status-row strong {
+	overflow: hidden;
+	color: #c9d1cd;
+	font-size: 11px;
+	font-weight: 650;
+	text-align: right;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.server-status-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: #77817c;
+	box-shadow: 0 0 0 3px rgba(119, 129, 124, 0.1);
+}
+
+.server-status-dot.available {
+	background: #67d8a0;
+	box-shadow: 0 0 0 3px rgba(103, 216, 160, 0.11);
+}
+
+.server-status-dot.unavailable {
+	background: #ff8d8d;
+	box-shadow: 0 0 0 3px rgba(255, 141, 141, 0.11);
+}
+
+.server-status-dot.warning {
+	background: #d9b15f;
+	box-shadow: 0 0 0 3px rgba(217, 177, 95, 0.11);
+}
+
+.server-status-dot.checking {
+	animation: server-status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes server-status-pulse {
+	50% {
+		opacity: 0.38;
+	}
+}
+
 .save-box form,
 .logout-button {
 	width: 100%;

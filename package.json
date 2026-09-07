@@ -1,7 +1,7 @@
 {
 	"name": "intermittens",
 	"private": true,
-	"version": "0.0.1",
+	"version": "0.0.8",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
@@ -10,6 +10,7 @@
 		"setup": "node scripts/setup-deploy.mjs",
 		"setup:deploy": "node scripts/setup-deploy.mjs",
 		"upload": "node scripts/deploy.mjs",
+		"predeploy": "npm version patch --no-git-tag-version",
 		"deploy": "node scripts/deploy.mjs && node scripts/remote-runtime.mjs install && node scripts/remote-runtime.mjs restart",
 		"deploy:dry-run": "node scripts/deploy.mjs --dry-run",
 		"deploy:stage": "node scripts/deploy.mjs --stage-only",
