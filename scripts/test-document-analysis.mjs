@@ -12,6 +12,7 @@ const server = await createServer({
 try {
 	const documentAnalysis = await server.ssrLoadModule('/src/lib/server/documentAnalysis.ts');
 	const contractImport = await server.ssrLoadModule('/src/lib/server/contractImport.ts');
+	const contractMatching = await server.ssrLoadModule('/src/lib/server/contractMatching.ts');
 	const pdfParts = await server.ssrLoadModule('/src/lib/server/pdfParts.ts');
 	assert.equal(pdfParts.documentKindFromFileName('cs-2026-08.pdf', 'Autre'), 'Congé Spectacle');
 	assert.equal(pdfParts.documentKindFromFileName('aem-2026-08.pdf', 'Autre'), 'AEM');
@@ -131,6 +132,102 @@ try {
 			grossHourlyRate: 39.2
 		}),
 		{ netHourlyRate: 30.19 }
+	);
+
+	const zorbaContract = {
+		id: 'contract-zorba-september',
+		companyId: 'company-zorba',
+		projectId: 'project-katabasis',
+		title: 'Katabasis',
+		startDate: '2026-09-01',
+		endDate: '2026-09-17',
+		hours: 91,
+		cachets: 0,
+		employmentStatus: 'Technicien cadre',
+		netSalary: 0,
+		taxableNetSalary: 0,
+		grossSalary: 3567.2,
+		contributions: 0,
+		netHourlyRate: 0,
+		grossHourlyRate: 39.2,
+		status: 'Signé',
+		notes: '',
+		documentIds: [],
+		createdAt: '2026-09-01T00:00:00.000Z',
+		updatedAt: '2026-09-01T00:00:00.000Z'
+	};
+	const matchingData = {
+		companies: [
+			{
+				id: 'company-zorba',
+				name: 'ZORBA PRODUCTION',
+				legalName: 'ZORBA PRODUCTION',
+				siren: '532259603',
+				siret: '53225960300027'
+			},
+			{
+				id: 'company-ultreia',
+				name: 'COMPAGNIE ULTREIA',
+				legalName: 'COMPAGNIE ULTREIA',
+				siren: '798593331',
+				siret: '79859333100027'
+			}
+		],
+		contracts: [zorbaContract],
+		documents: []
+	};
+	const ultreiaSeptemberFields = {
+		startDate: '2026-09-06',
+		endDate: '2026-09-08',
+		hours: 24,
+		grossSalary: 480
+	};
+
+	assert.equal(
+		contractMatching.contractEmployerRelationship(
+			matchingData,
+			zorbaContract,
+			[],
+			'company-ultreia',
+			['79859333100027']
+		),
+		'different'
+	);
+	assert.equal(
+		contractMatching.findExistingContract(
+			matchingData,
+			ultreiaSeptemberFields,
+			'company-ultreia',
+			'',
+			['79859333100027'],
+			'Scanned_20260906-1819.pdf'
+		),
+		undefined,
+		'An overlapping period must never merge contracts from different employers.'
+	);
+	assert.equal(
+		contractMatching.findExistingContract(
+			matchingData,
+			ultreiaSeptemberFields,
+			'',
+			'',
+			[],
+			'Scanned_20260906-1819.pdf'
+		),
+		undefined,
+		'An overlapping period alone must not be enough to merge contracts.'
+	);
+	assert.equal(
+		contractMatching.findExistingContract(
+			matchingData,
+			ultreiaSeptemberFields,
+			'company-zorba',
+			'',
+			['53225960300027'],
+			'Scanned_20260906-1819.pdf'
+		)?.id,
+		'contract-zorba-september',
+		'An overlapping document from the same employer can still match the contract.'
 	);
 
 	const movinmotionPayslipText = [
@@ -264,6 +361,7 @@ try {
 	scannedContext.font = '30px Arial';
 	[
 		'Compagnie Ultreia',
+		'Siret : 798 593 331 00027 - Code APE : 9001Z',
 		'Monsieur Test est engage en qualite de Artiste visuel.',
 		'Le present engagement couvre la periode du 06/09/26 au 08/09/26.',
 		'Nombre de jour(s) ou cachet(s) : 3 (soit 24 heure(s)).',
@@ -284,6 +382,7 @@ try {
 
 	assert.equal(scannedParts[0].kind, 'Contrat');
 	assert.match(scannedParts[0].extractionNotes.join(' '), /OCR française appliquée/);
+	assert.deepEqual(contractMatching.extractSirets(scannedParts[0].text), ['79859333100027']);
 	assert.deepEqual(scannedAnalysis.fields, {
 		startDate: '2026-09-06',
 		endDate: '2026-09-08',
