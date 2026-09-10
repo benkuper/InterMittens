@@ -242,6 +242,19 @@ try {
 		documentAnalysis.classifyDocumentKind(movinmotionPayslipText, 'Autre'),
 		'Fiche de paie'
 	);
+	const ghsPayslipWithCongeContributionText = [
+		'GHS sPAIEctacle',
+		'Bulletin de paie',
+		'MONTANT BRUT 480,00',
+		'Congés Spectacles 74,40',
+		'MONTANT NET SOCIAL 371,68',
+		'NET A PAYER AVANT IMPOT SUR LE REVENU 371,68'
+	].join(' ');
+	assert.equal(
+		documentAnalysis.classifyDocumentKind(ghsPayslipWithCongeContributionText, 'Autre'),
+		'Fiche de paie',
+		'Une cotisation Congés Spectacles ne doit pas transformer un bulletin de paie en certificat CS.'
+	);
 	assert.equal(
 		documentAnalysis.analyzeDocumentText(movinmotionPayslipText).fields.grossSalary,
 		1500
@@ -326,6 +339,46 @@ try {
 	assert.equal(parts[0].pageEnd, 2);
 	assert.equal(parts[0].isSplit, false);
 	assert.deepEqual(parts[0].extractionNotes, []);
+
+	const mixedPayrollPdf = await PDFDocument.create();
+	const mixedPayrollFont = await mixedPayrollPdf.embedFont(StandardFonts.Helvetica);
+	const payrollPage = mixedPayrollPdf.addPage();
+	payrollPage.drawText(
+		'BULLETIN DE PAIE - MONTANT BRUT 480,00 - CONGES SPECTACLES 74,40 - NET A PAYER 371,68',
+		{ font: mixedPayrollFont, size: 10, x: 40, y: 760 }
+	);
+	const aemPage = mixedPayrollPdf.addPage();
+	aemPage.drawText('ATTESTATION EMPLOYEUR MENSUELLE (AEM)', {
+		font: mixedPayrollFont,
+		size: 10,
+		x: 40,
+		y: 760
+	});
+	const congePage = mixedPayrollPdf.addPage();
+	congePage.drawText(
+		"CERTIFICAT D'EMPLOI LES CONGES SPECTACLES DESTINE AU SALARIE",
+		{ font: mixedPayrollFont, size: 10, x: 40, y: 760 }
+	);
+
+	const mixedPayrollParts = await pdfParts.splitAndClassifyDocument(
+		'2026_09 - Paie KUPERBERG.pdf',
+		'application/pdf',
+		Buffer.from(await mixedPayrollPdf.save()),
+		'Autre'
+	);
+
+	assert.deepEqual(
+		mixedPayrollParts.map((part) => part.kind),
+		['Fiche de paie', 'AEM', 'Congé Spectacle']
+	);
+	assert.deepEqual(
+		mixedPayrollParts.map((part) => [part.pageStart, part.pageEnd]),
+		[
+			[1, 1],
+			[2, 2],
+			[3, 3]
+		]
+	);
 
 	const prefixedPdf = await PDFDocument.create();
 	const prefixedFirstPage = prefixedPdf.addPage();

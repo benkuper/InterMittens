@@ -222,6 +222,10 @@ export function classifyDocumentKind(text: string, fallback: DocumentKind) {
 		return 'Contrat' as const;
 	}
 
+	if (/bulletin de (?:paie|salaire)|fiche de paie/.test(normalized)) {
+		return 'Fiche de paie' as const;
+	}
+
 	if (
 		/\b(?:certificat\s+d['’]?emploi\s+les?\s+cong[eé]s?\s+spectacl(?:e|es)|cong[eé]s?\s+spectacl(?:e|es)|caisse\s+des?\s+cong[eé]s?|certificat\s+de\s+cong[eé]s?|attestation\s+de\s+cong[eé]s?\s+spectacl(?:e|es)|indemnit[eé]\s+de\s+cong[eé]s?)\b/.test(
 			normalized
@@ -230,11 +234,7 @@ export function classifyDocumentKind(text: string, fallback: DocumentKind) {
 		return 'Congé Spectacle' as const;
 	}
 
-	if (
-		/bulletin de paie|fiche de paie|net a payer|net imposable|cotisations salariales/.test(
-			normalized
-		)
-	) {
+	if (/net a payer|net imposable|cotisations salariales/.test(normalized)) {
 		return 'Fiche de paie' as const;
 	}
 
