@@ -95,8 +95,8 @@
 	}
 </script>
 
-<section class="view-grid two-columns">
-	<section class="panel">
+<section class="view-grid pilotage-layout">
+	<section class="panel recent-contracts-panel">
 		<div class="panel-heading">
 			<h3>Contrats récents</h3>
 			<div class="button-row">
@@ -119,7 +119,7 @@
 		</div>
 		<ImportFeedback state={appState} />
 		<div class="table-wrap">
-			<table>
+			<table class="recent-contracts-table">
 				<thead>
 					<tr>
 						<th>Contrat</th>
@@ -134,7 +134,7 @@
 				<tbody>
 					{#each appState.recentContracts as contract}
 						<tr class:clickable={true} onclick={() => openContract(contract)}>
-							<td>
+							<td data-label="Contrat">
 								<span class="company-list-title">
 									<span
 										class="company-swatch"
@@ -144,12 +144,19 @@
 									{contract.title}
 								</span>
 							</td>
-							<td>{appState.projectName(contract.projectId)}</td>
-							<td>{formatDate(contract.startDate)} - {formatDate(contract.endDate)}</td>
-							<td>{formatNumber(contractRecognizedHours(contract), 0)}</td>
-							<td>{formatCurrency(contract.netSalary)}</td>
-							<td><span class="status" data-status={contract.status}>{contract.status}</span></td>
-							<td><DocumentPresence documents={appState.documentsFor(contract)} /></td>
+							<td data-label="Projet">{appState.projectName(contract.projectId)}</td>
+							<td data-label="Période" class="contract-dates">
+								<span>{formatDate(contract.startDate)}</span> –
+								<span>{formatDate(contract.endDate)}</span>
+							</td>
+							<td data-label="Heures">{formatNumber(contractRecognizedHours(contract), 0)}</td>
+							<td data-label="Net">{formatCurrency(contract.netSalary)}</td>
+							<td data-label="Statut">
+								<span class="status" data-status={contract.status}>{contract.status}</span>
+							</td>
+							<td data-label="Documents">
+								<DocumentPresence documents={appState.documentsFor(contract)} />
+							</td>
 						</tr>
 					{/each}
 					{#if appState.recentContracts.length === 0}
