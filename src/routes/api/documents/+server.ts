@@ -12,6 +12,9 @@ import {
 	importedContractTitle
 } from '$lib/server/contractImport';
 import { analyzeDocumentText } from '$lib/server/documentAnalysis';
+import { analyzeCongesStatement } from '$lib/server/congesAnalysis';
+import { analyzeRoyaltyStatement } from '$lib/server/royaltyAnalysis';
+import { analyzeFranceTravailLetter } from '$lib/server/franceTravailAnalysis';
 import {
 	companyNameFromFileName,
 	contractEmployerRelationship,
@@ -43,7 +46,10 @@ import type {
 	CompanySuggestion,
 	DocumentKind,
 	IntermittencePeriod,
-	ContractStatus
+	ContractStatus,
+	CongesPayment,
+	RoyaltyPayment,
+	FranceTravailDocument
 } from '$lib/types';
 
 function sanitizeFileName(name: string) {
@@ -485,6 +491,9 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 	const parts = await splitAndClassifyDocument(file.name, file.type, buffer, kind);
 	const preparedDocuments: ContractDocument[] = [];
 	const preparedPeriods: IntermittencePeriod[] = [];
+	const preparedConges: CongesPayment[] = [];
+	const preparedRoyalties: RoyaltyPayment[] = [];
+	const preparedFranceTravail: FranceTravailDocument[] = [];
 	const preparedDocumentTexts = new Map<string, string>();
 	const notes: string[] = [];
 	let appliedFields: Partial<ContractFields> = {};
@@ -494,6 +503,28 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 		const partSafeName = sanitizeFileName(part.fileName || safeName || 'document.pdf');
 		const storedName = `${id}-${partSafeName || 'document.pdf'}`;
 		await writeFile(path.join(documentDir, storedName), part.buffer);
+
+		// Fiscal payments must never create employment contracts or add qualifying hours.
+		const conges = analyzeCongesStatement(part.text);
+		if (conges) {
+			preparedConges.push({ ...conges, id, fileName: part.fileName, storedName });
+			notes.push('Relevé Audiens ajouté au bilan fiscal de son année de paiement.');
+			continue;
+		}
+		const royalty = analyzeRoyaltyStatement(part.text, part.fileName);
+		if (royalty) {
+			preparedRoyalties.push({ ...royalty, id, fileName: part.fileName, storedName });
+			notes.push("Décompte ajouté aux droits d'auteur et au bilan fiscal.");
+			continue;
+		}
+
+		const letter = analyzeFranceTravailLetter(part.text, part.fileName);
+		if (letter) {
+			const { situation: _situation, ...document } = letter;
+			preparedFranceTravail.push({ ...document, id, storedName });
+			notes.push(letter.summary);
+			continue;
+		}
 
 		if (part.kind === 'Notification ARE') {
 			const period = analyzeAreNotification(part.text, {
@@ -559,6 +590,32 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 			?.extractedFields.title?.trim() ?? '';
 
 	let data = await mutateData((current) => {
+		for (const document of preparedFranceTravail) {
+			current.franceTravailDocs = [
+				document,
+				...current.franceTravailDocs.filter(
+					(item) => !(item.fileName === document.fileName && item.year === document.year)
+				)
+			];
+		}
+		for (const payment of preparedConges) {
+			current.congesPayments = [
+				payment,
+				...current.congesPayments.filter(
+					(item) =>
+						!(item.fileName === payment.fileName && item.paymentDate === payment.paymentDate)
+				)
+			];
+		}
+		for (const payment of preparedRoyalties) {
+			current.royalties = [
+				payment,
+				...current.royalties.filter(
+					(item) =>
+						!(item.fileName === payment.fileName && item.paymentDate === payment.paymentDate)
+				)
+			];
+		}
 		const detectedCompanyId = detectCompanyId(current, combinedText);
 		const matchedProject = findProjectForProduction(
 			current.projects,
@@ -721,9 +778,6 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 			if (preparedPeriods[0].referenceStartDate) {
 				current.settings.referenceStartDate = preparedPeriods[0].referenceStartDate;
 			}
-			if (preparedPeriods[0].dailyAllowance) {
-				current.settings.minDailyAllowance = preparedPeriods[0].dailyAllowance;
-			}
 		}
 
 		return current;
@@ -818,6 +872,9 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 			.filter((document) => preparedDocuments.some((created) => created.id === document.id))
 			.map((document) => document.id),
 		periodIds: preparedPeriods.map((period) => period.id),
+		congesIds: preparedConges.map((payment) => payment.id),
+		royaltyIds: preparedRoyalties.map((payment) => payment.id),
+		franceTravailIds: preparedFranceTravail.map((document) => document.id),
 		companySuggestions,
 		appliedFields,
 		analysis: {

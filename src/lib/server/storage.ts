@@ -2,9 +2,18 @@ import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { COMMON, normalizeAnnex } from '$lib/rules';
 import { defaultCompanyColor, normalizeCompanyColor } from '$lib/companyColors';
 import type {
 	AppData,
+	AuthorWork,
+	RoyaltyPayment,
+	RoyaltySource,
+	RoyaltyStatus,
+	WorkKind,
+	TaxYearSettings,
+	CongesPayment,
+	FranceTravailDocument,
 	Company,
 	Contract,
 	ContractFields,
@@ -80,18 +89,22 @@ export function createDefaultData(): AppData {
 		periods: [],
 		futureContracts: [],
 		monthlyInfos: [],
+		works: [],
+		royalties: [],
+		congesPayments: [],
+		franceTravailDocs: [],
 		settings: {
 			referenceStartDate: `${new Date().getFullYear()}-01-01`,
 			targetHours: 507,
 			annex: 'Annexe 8',
-			minDailyAllowance: 31.97,
-			smicHourlyGross: 11.88,
+			minDailyAllowance: COMMON.minDailyAllowance,
+			smicHourlyGross: 12.31,
 			annex8SalaryCoefficient: 0.42,
 			annex8HoursCoefficient: 0.26,
 			annex8FixedCoefficient: 0.4,
 			monthlyWorkDayDivisor: 8,
 			monthlyShiftCoefficient: 1.4,
-			pmss: 3925,
+			pmss: 4005,
 			cumulPmssMultiplier: 1.18,
 			transatEmail: '',
 			ghsApiBaseUrl: '',
@@ -103,7 +116,10 @@ export function createDefaultData(): AppData {
 			remoteBaseUrl: 'https://yoursite.fr/intermittens',
 			remoteSyncEnabled: false,
 			remoteLastSyncAt: '',
-			remoteLastSyncStatus: 'Synchronisation distante non activée'
+			remoteLastSyncStatus: 'Synchronisation distante non activée',
+			taxYears: {},
+			anniversaries: {},
+			congesSpectaclesByYear: {}
 		}
 	};
 }
@@ -194,6 +210,7 @@ function normalizeContract(contract: Partial<Contract>): Contract {
 		taxableNetSalary: normalizeNumber(contract.taxableNetSalary),
 		grossSalary: normalizeNumber(contract.grossSalary),
 		contributions: normalizeNumber(contract.contributions),
+		employerCost: normalizeNumber(contract.employerCost),
 		netHourlyRate: normalizeNumber(contract.netHourlyRate || fields.netHourlyRate),
 		grossHourlyRate: normalizeNumber(contract.grossHourlyRate || fields.grossHourlyRate),
 		status:
@@ -272,6 +289,147 @@ function normalizeMonthlyInfo(info: Partial<MonthlyInfo>): MonthlyInfo {
 	};
 }
 
+const royaltySources: RoyaltySource[] = ['SACEM', 'SACD', 'SCAM', 'Droits directs', 'Autre'];
+const royaltyStatuses: RoyaltyStatus[] = ['Attendu', 'Reçu', 'Déclaré'];
+const workKinds: WorkKind[] = ['Musique', 'Spectacle vivant', 'Audiovisuel', 'Texte', 'Autre'];
+
+function pick<T extends string>(value: unknown, allowed: T[], fallback: T): T {
+	return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function normalizeWork(work: Partial<AuthorWork>): AuthorWork {
+	return {
+		id: cleanString(work.id) || createId('work'),
+		title: cleanString(work.title) || 'Nouvelle œuvre',
+		kind: pick(work.kind, workKinds, 'Autre'),
+		society: pick(work.society, royaltySources, 'Autre'),
+		reference: cleanString(work.reference),
+		coAuthors: cleanString(work.coAuthors),
+		sharePercent: normalizeNumber(work.sharePercent ?? 100),
+		depositDate: cleanString(work.depositDate),
+		notes: cleanString(work.notes)
+	};
+}
+
+function normalizeRoyalty(payment: Partial<RoyaltyPayment>): RoyaltyPayment {
+	return {
+		id: cleanString(payment.id) || createId('royalty'),
+		source: pick(payment.source, royaltySources, 'Autre'),
+		payerName: cleanString(payment.payerName),
+		workId: cleanString(payment.workId),
+		label: cleanString(payment.label),
+		paymentDate: cleanString(payment.paymentDate),
+		grossAmount: normalizeNumber(payment.grossAmount),
+		withheldContributions: normalizeNumber(payment.withheldContributions),
+		netAmount: normalizeNumber(payment.netAmount),
+		contributionsWithheld: payment.contributionsWithheld !== false,
+		status: pick(payment.status, royaltyStatuses, 'Reçu'),
+		notes: cleanString(payment.notes),
+		taxableAmount:
+			normalizeNumber(payment.taxableAmount) ||
+			normalizeNumber(
+				cleanString(payment.notes)
+					.match(/net imposable\s*:\s*([0-9 ]+(?:,[0-9]+)?)/i)?.[1]
+					?.replace(/\s/g, '')
+					.replace(',', '.')
+			),
+		fileName: cleanString(payment.fileName),
+		storedName: cleanString(payment.storedName)
+	};
+}
+
+export function defaultTaxYear(): TaxYearSettings {
+	// Bounds of the 10 % deduction for 2025 income (declared in 2026); editable per year.
+	return {
+		flatDeductionMin: 509,
+		flatDeductionMax: 14555,
+		unemploymentTaxable: null,
+		congesSpectaclesTaxable: null,
+		withheldAtSource: 0,
+		mileageKm: 0,
+		mileageRate: 0,
+		meals: 0,
+		equipment: 0,
+		otherExpenses: 0,
+		notes: ''
+	};
+}
+
+function normalizeTaxYear(value: Partial<TaxYearSettings>): TaxYearSettings {
+	const defaults = defaultTaxYear();
+	return {
+		flatDeductionMin: normalizeNumber(value.flatDeductionMin ?? defaults.flatDeductionMin),
+		flatDeductionMax: normalizeNumber(value.flatDeductionMax ?? defaults.flatDeductionMax),
+		unemploymentTaxable:
+			value.unemploymentTaxable == null ? null : normalizeNumber(value.unemploymentTaxable),
+		congesSpectaclesTaxable:
+			value.congesSpectaclesTaxable == null ? null : normalizeNumber(value.congesSpectaclesTaxable),
+		withheldAtSource: normalizeNumber(value.withheldAtSource),
+		mileageKm: normalizeNumber(value.mileageKm),
+		mileageRate: normalizeNumber(value.mileageRate),
+		meals: normalizeNumber(value.meals),
+		equipment: normalizeNumber(value.equipment),
+		otherExpenses: normalizeNumber(value.otherExpenses),
+		notes: cleanString(value.notes)
+	};
+}
+
+function normalizeFranceTravailDocument(
+	item: Partial<FranceTravailDocument>
+): FranceTravailDocument {
+	return {
+		id: cleanString(item.id) || createId('france-travail'),
+		kind: pick(
+			item.kind,
+			['Relevé de situation', 'Attestation fiscale', 'Fin de droits', 'Courrier'],
+			'Courrier'
+		),
+		date: cleanString(item.date),
+		fileName: cleanString(item.fileName),
+		storedName: cleanString(item.storedName),
+		summary: cleanString(item.summary),
+		year: cleanString(item.year),
+		amount: normalizeNumber(item.amount),
+		withheldTax: normalizeNumber(item.withheldTax),
+		months: Array.isArray(item.months) ? item.months.map(String) : []
+	};
+}
+
+function normalizeCongesPayment(payment: Partial<CongesPayment>): CongesPayment {
+	return {
+		id: cleanString(payment.id) || createId('conges'),
+		paymentDate: cleanString(payment.paymentDate),
+		season: cleanString(payment.season),
+		grossAmount: normalizeNumber(payment.grossAmount),
+		netAmount: normalizeNumber(payment.netAmount),
+		taxableAmount: normalizeNumber(payment.taxableAmount),
+		withheldTax: normalizeNumber(payment.withheldTax),
+		days: normalizeNumber(payment.days),
+		fileName: cleanString(payment.fileName),
+		storedName: cleanString(payment.storedName),
+		notes: cleanString(payment.notes)
+	};
+}
+
+// Les anciennes versions remplaçaient l'AJ minimale (paramètre de la formule, art. 14) par
+// l'AJ notifiée à chaque import de notification ARE. On rétablit la valeur du texte.
+function repairMinDailyAllowance(value: unknown, periods: unknown) {
+	const current = normalizeNumber(value);
+	const notified = Array.isArray(periods)
+		? periods.map((period) =>
+				normalizeNumber((period as Partial<IntermittencePeriod>).dailyAllowance)
+			)
+		: [];
+	if (
+		!current ||
+		current === 31.97 ||
+		(current > COMMON.minDailyAllowance && notified.includes(current))
+	) {
+		return COMMON.minDailyAllowance;
+	}
+	return current;
+}
+
 export function normalizeData(input: Partial<AppData>): AppData {
 	const defaults = createDefaultData();
 	const settings = { ...defaults.settings, ...(input.settings ?? {}) };
@@ -290,11 +448,42 @@ export function normalizeData(input: Partial<AppData>): AppData {
 		monthlyInfos: Array.isArray(input.monthlyInfos)
 			? input.monthlyInfos.map(normalizeMonthlyInfo).filter((info) => info.month)
 			: [],
+		works: Array.isArray(input.works) ? input.works.map(normalizeWork) : [],
+		franceTravailDocs: Array.isArray(input.franceTravailDocs)
+			? input.franceTravailDocs.map(normalizeFranceTravailDocument)
+			: [],
+		royalties: Array.isArray(input.royalties) ? input.royalties.map(normalizeRoyalty) : [],
+		congesPayments: Array.isArray(input.congesPayments)
+			? input.congesPayments.map(normalizeCongesPayment)
+			: [],
 		settings: {
 			...settings,
+			annex: normalizeAnnex(settings.annex),
+			anniversaries: Object.fromEntries(
+				Object.entries(settings.anniversaries ?? {}).filter(
+					([year, date]) =>
+						/^\d{4}$/.test(year) &&
+						typeof date === 'string' &&
+						date.startsWith(`${year}-`) &&
+						/^\d{4}-\d{2}-\d{2}$/.test(date) &&
+						!Number.isNaN(new Date(`${date}T00:00:00`).getTime())
+				)
+			),
+			congesSpectaclesByYear: Object.fromEntries(
+				Object.entries(settings.congesSpectaclesByYear ?? {})
+					.filter(([year]) => /^\d{4}$/.test(year))
+					.map(([year, amount]) => [year, Math.max(0, normalizeNumber(amount))])
+			),
+			taxYears:
+				settings.taxYears && typeof settings.taxYears === 'object'
+					? Object.fromEntries(
+							Object.entries(settings.taxYears)
+								.filter(([year]) => /^\d{4}$/.test(year))
+								.map(([year, value]) => [year, normalizeTaxYear(value ?? {})])
+						)
+					: {},
 			targetHours: normalizeNumber(settings.targetHours) || defaults.settings.targetHours,
-			minDailyAllowance:
-				normalizeNumber(settings.minDailyAllowance) || defaults.settings.minDailyAllowance,
+			minDailyAllowance: repairMinDailyAllowance(settings.minDailyAllowance, input.periods),
 			smicHourlyGross:
 				normalizeNumber(settings.smicHourlyGross) || defaults.settings.smicHourlyGross,
 			annex8SalaryCoefficient:
@@ -382,7 +571,10 @@ export async function deleteStoredFiles(storedNames: string[]) {
 export function usedStoredFiles(data: AppData) {
 	return new Set([
 		...data.documents.map((document) => document.storedName).filter(Boolean),
-		...data.periods.map((period) => period.sourceStoredName).filter(Boolean)
+		...data.periods.map((period) => period.sourceStoredName).filter(Boolean),
+		...data.royalties.map((item) => item.storedName).filter(Boolean),
+		...data.congesPayments.map((item) => item.storedName).filter(Boolean),
+		...data.franceTravailDocs.map((item) => item.storedName).filter(Boolean)
 	]);
 }
 

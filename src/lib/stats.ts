@@ -1,3 +1,5 @@
+import { dailyAllowance, monthlyPayment, normalizeAnnex } from '$lib/rules';
+import { selectedIntermittenceYear, yearAsPeriod, yearOfMonthlyInfo } from '$lib/years';
 import type {
 	AppData,
 	Contract,
@@ -72,7 +74,18 @@ function parseDate(value: string) {
 }
 
 export function getActivePeriod(data: AppData) {
+	if (/^year:\d{4}$/.test(data.settings.activePeriodId)) {
+		const year = selectedIntermittenceYear(data);
+		if (year) return yearAsPeriod(year);
+	}
 	return (data.periods ?? []).find((period) => period.id === data.settings.activePeriodId);
+}
+
+export function monthlyInfoMatchesSelection(data: AppData, info: MonthlyInfo) {
+	const id = data.settings.activePeriodId;
+	return /^year:\d{4}$/.test(id)
+		? yearOfMonthlyInfo(data, info) === Number(id.slice(5))
+		: !id || info.periodId === id || !info.periodId;
 }
 
 function getPeriodStart(period: IntermittencePeriod) {
@@ -144,6 +157,22 @@ function splitContractAcrossMonths(contract: Contract) {
 
 export function getMonthlyInfo(data: AppData, month: string): MonthlyInfo {
 	const activePeriodId = data.settings.activePeriodId;
+	if (/^year:\d{4}$/.test(activePeriodId)) {
+		const infos = data.monthlyInfos.filter(
+			(info) => info.month === month && monthlyInfoMatchesSelection(data, info)
+		);
+		return {
+			month,
+			periodId: activePeriodId,
+			congeSpectacle: infos.reduce((total, info) => total + info.congeSpectacle, 0),
+			realIndemnity: infos.reduce((total, info) => total + info.realIndemnity, 0),
+			dailyIndemnity: infos.find((info) => info.dailyIndemnity > 0)?.dailyIndemnity ?? 0,
+			notes: infos
+				.map((info) => info.notes)
+				.filter(Boolean)
+				.join(' · ')
+		};
+	}
 	return (
 		data.monthlyInfos.find(
 			(info) =>
@@ -203,23 +232,27 @@ export function calculateReference(data: AppData) {
 	};
 }
 
+export function estimateDailyAllowanceDetail(data: AppData) {
+	const reference = calculateReference(data);
+	const settings = data.settings;
+
+	return dailyAllowance({
+		annex: normalizeAnnex(settings.annex),
+		referenceSalary: reference.grossSalary,
+		hours: reference.hours,
+		minDailyAllowance: settings.minDailyAllowance,
+		pmss: settings.pmss
+	});
+}
+
 export function estimateDailyAllowance(data: AppData) {
 	const activePeriod = getActivePeriod(data);
 	if (activePeriod?.dailyAllowance) return activePeriod?.dailyAllowance;
 
 	const reference = calculateReference(data);
-	const settings = data.settings;
+	if (!reference.hours || !reference.grossSalary) return 0;
 
-	if (!reference.hours || !reference.grossSalary || !settings.smicHourlyGross) return 0;
-
-	const salaryPart =
-		settings.annex8SalaryCoefficient *
-		(reference.grossSalary / (reference.hours * settings.smicHourlyGross));
-	const hoursPart = settings.annex8HoursCoefficient * (reference.hours / settings.targetHours);
-	const gross =
-		settings.minDailyAllowance * (salaryPart + hoursPart + settings.annex8FixedCoefficient);
-
-	return round(Math.max(0, gross));
+	return round(estimateDailyAllowanceDetail(data).value);
 }
 
 export function estimateMonthlyIndemnity(
@@ -231,22 +264,20 @@ export function estimateMonthlyIndemnity(
 	const info = getMonthlyInfo(data, month);
 	const dailyAllowance =
 		info.dailyIndemnity > 0 ? info.dailyIndemnity : estimateDailyAllowance(data);
-	const workedDaysEstimate =
-		data.settings.monthlyWorkDayDivisor > 0
-			? Math.ceil(
-					(hours / data.settings.monthlyWorkDayDivisor) * data.settings.monthlyShiftCoefficient
-				)
-			: 0;
-	const indemnizableDays = Math.max(0, daysInMonth(month) - workedDaysEstimate);
-	const rawIndemnity = indemnizableDays * dailyAllowance;
-	const monthlyCap = data.settings.pmss * data.settings.cumulPmssMultiplier;
-	const cappedIndemnity =
-		monthlyCap > 0 ? Math.min(rawIndemnity, Math.max(0, monthlyCap - grossSalary)) : rawIndemnity;
+	const payment = monthlyPayment({
+		annex: normalizeAnnex(data.settings.annex),
+		daysInMonth: daysInMonth(month),
+		hours,
+		grossSalary,
+		dailyAllowance,
+		pmss: data.settings.pmss,
+		cumulPmssMultiplier: data.settings.cumulPmssMultiplier
+	});
 
 	return {
 		dailyAllowance,
-		workedDaysEstimate,
-		estimatedIndemnity: round(cappedIndemnity)
+		workedDaysEstimate: payment.nonIndemnifiableDays,
+		estimatedIndemnity: payment.amount
 	};
 }
 
@@ -307,7 +338,7 @@ export function buildMonthlyStats(data: AppData): MonthlyStats[] {
 		if (
 			info.month &&
 			isMonthInsidePeriod(info.month, activePeriod) &&
-			(!activePeriod || info.periodId === activePeriod.id || !info.periodId)
+			monthlyInfoMatchesSelection(data, info)
 		) {
 			ensure(info.month);
 		}
@@ -476,7 +507,7 @@ export function buildTimelineMonths(data: AppData) {
 		if (
 			info.month &&
 			isMonthInsidePeriod(info.month, activePeriod) &&
-			(!activePeriod || info.periodId === activePeriod.id || !info.periodId)
+			monthlyInfoMatchesSelection(data, info)
 		) {
 			months.add(info.month);
 		}

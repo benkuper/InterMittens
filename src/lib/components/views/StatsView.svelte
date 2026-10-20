@@ -7,9 +7,11 @@
 	import { formatCurrency, formatDate, formatNumber, formatPreciseCurrency } from '$lib/format';
 	import { buildMonthlyContractBreakdown, monthLabel } from '$lib/stats';
 	import type { MonthlyStats } from '$lib/types';
+	import { intermittenceYears, yearLabel } from '$lib/years';
 
 	let { state: appState }: { state: IntermittensState } = $props();
 	let openMonths = $state<string[]>([]);
+	let historyYears = $derived(intermittenceYears(appState.appData));
 
 	let visibleMonthlyStats = $derived.by(() => {
 		const statsByMonth = new Map(appState.monthlyStats.map((stats) => [stats.month, stats]));
@@ -101,6 +103,9 @@
 					onchange={(event) => changePeriod(event.currentTarget.value)}
 				>
 					<option value="">Global / sans compartiment</option>
+					{#each historyYears.filter((year) => !year.isFuture) as year (year.key)}
+						<option value={year.key}>{yearLabel(year)}</option>
+					{/each}
 					{#each appState.appData.periods as period}
 						<option value={period.id}>{period.label}</option>
 					{/each}

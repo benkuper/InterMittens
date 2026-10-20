@@ -24,9 +24,6 @@ export const DELETE: RequestHandler = async ({ params }) => {
 			if (nextPeriod.referenceStartDate) {
 				current.settings.referenceStartDate = nextPeriod.referenceStartDate;
 			}
-			if (nextPeriod.dailyAllowance) {
-				current.settings.minDailyAllowance = nextPeriod.dailyAllowance;
-			}
 		}
 
 		return current;

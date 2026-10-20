@@ -70,6 +70,7 @@ export type ContractFields = {
 	taxableNetSalary: number;
 	grossSalary: number;
 	contributions: number;
+	employerCost?: number;
 	netHourlyRate: number;
 	grossHourlyRate: number;
 	status: ContractStatus;
@@ -128,10 +129,95 @@ export type IntermittencePeriod = {
 	notes: string;
 };
 
+export type RoyaltySource = 'SACEM' | 'SACD' | 'SCAM' | 'Droits directs' | 'Autre';
+export type RoyaltyStatus = 'Attendu' | 'Reçu' | 'Déclaré';
+export type WorkKind = 'Musique' | 'Spectacle vivant' | 'Audiovisuel' | 'Texte' | 'Autre';
+
+export type AuthorWork = {
+	id: string;
+	title: string;
+	kind: WorkKind;
+	society: RoyaltySource;
+	reference: string;
+	coAuthors: string;
+	sharePercent: number;
+	depositDate: string;
+	notes: string;
+};
+
+export type RoyaltyPayment = {
+	id: string;
+	source: RoyaltySource;
+	payerName: string;
+	workId: string;
+	label: string;
+	paymentDate: string;
+	grossAmount: number;
+	withheldContributions: number;
+	netAmount: number;
+	contributionsWithheld: boolean;
+	status: RoyaltyStatus;
+	notes: string;
+	/** Net imposable printed on the statement (0 when unknown). */
+	taxableAmount: number;
+	/** Attached statement (stored like contract documents). */
+	fileName: string;
+	storedName: string;
+};
+
+/** Audiens holiday pay, counted in the year of payment. */
+export type CongesPayment = {
+	id: string;
+	paymentDate: string;
+	season: string;
+	grossAmount: number;
+	netAmount: number;
+	taxableAmount: number;
+	withheldTax: number;
+	days: number;
+	fileName: string;
+	storedName: string;
+	notes: string;
+};
+
+export type FranceTravailDocument = {
+	id: string;
+	kind: 'Relevé de situation' | 'Attestation fiscale' | 'Fin de droits' | 'Courrier';
+	/** Date of the letter. */
+	date: string;
+	fileName: string;
+	storedName: string;
+	summary: string;
+	/** Attestation fiscale: income year and taxable amount to report (1AP), tax withheld. */
+	year: string;
+	amount: number;
+	withheldTax: number;
+	/** Relevé de situation: months covered (AAAA-MM). */
+	months: string[];
+};
+
+export type TaxYearSettings = {
+	/** Deduction bounds for the 10 % flat professional-expenses allowance of that income year. */
+	flatDeductionMin: number;
+	flatDeductionMax: number;
+	/** Null means estimate; zero is an explicit official amount. */
+	unemploymentTaxable: number | null;
+	congesSpectaclesTaxable: number | null;
+	/** Income tax already withheld at source during the year (PAS). */
+	withheldAtSource: number;
+	/** Actual professional expenses ("frais réels"). */
+	mileageKm: number;
+	mileageRate: number;
+	meals: number;
+	equipment: number;
+	otherExpenses: number;
+	notes: string;
+};
+
 export type AppSettings = {
 	referenceStartDate: string;
 	targetHours: number;
-	annex: 'Annexe 8';
+	annex: 'Annexe 8' | 'Annexe 10';
 	minDailyAllowance: number;
 	smicHourlyGross: number;
 	annex8SalaryCoefficient: number;
@@ -152,6 +238,9 @@ export type AppSettings = {
 	remoteSyncEnabled: boolean;
 	remoteLastSyncAt: string;
 	remoteLastSyncStatus: string;
+	taxYears: Record<string, TaxYearSettings>;
+	anniversaries: Record<string, string>;
+	congesSpectaclesByYear: Record<string, number>;
 };
 
 export type AppData = {
@@ -164,6 +253,10 @@ export type AppData = {
 	periods: IntermittencePeriod[];
 	futureContracts: FutureContract[];
 	monthlyInfos: MonthlyInfo[];
+	works: AuthorWork[];
+	royalties: RoyaltyPayment[];
+	congesPayments: CongesPayment[];
+	franceTravailDocs: FranceTravailDocument[];
 	settings: AppSettings;
 };
 

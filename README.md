@@ -3,6 +3,14 @@
 Application SvelteKit de gestion d’intermittence: structures, projets, contrats, documents,
 notifications ARE, périodes d’intermittence et statistiques.
 
+Le calcul prévisionnel utilise les règles des annexes 8 et 10 (détail A + B + C, seuils, plancher, plafond et cumul mensuel). Une allocation notifiée reste prioritaire. Les délais d'attente et franchises restent à déduire des projections mensuelles.
+
+L'onglet `Impôts` présente un bilan par année civile, indépendant de la période d'intermittence sélectionnée : salaires payés, ARE, Congés Spectacles, droits d'auteur, comparaison forfait 10 % / frais réels et export CSV. Les relevés Audiens, décomptes de droits directs et attestations fiscales France Travail peuvent être importés. Les droits SACEM/SACD/SCAM peuvent être saisis dans `Droits d'auteur`. Les salaires sont rattachés au début du contrat, faute de date de paiement : les paiements décalés doivent être vérifiés avec les attestations fiscales. Les bornes fiscales par défaut concernent les revenus 2025 et restent modifiables par année.
+
+Origine des contributions et références : [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+L'onglet `Historique` compare les années d'intermittence : heures, progression vers l'objectif, répartition artistes/techniciens, employeurs, revenus reçus et évolution du brut. Les dates anniversaire sont modifiables ; sans notification ni date connue, le découpage provisoire suit l'année civile. Le bouton `Afficher` ouvre les statistiques de l'année. Les totaux annuels de Congés Spectacles remplacent les montants mensuels pour éviter les doubles comptes.
+
 ## Développement local
 
 ```sh

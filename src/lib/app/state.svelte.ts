@@ -8,6 +8,7 @@ import {
 	currentMonthKey,
 	estimateDailyAllowance,
 	getActivePeriod,
+	monthlyInfoMatchesSelection,
 	round
 } from '$lib/stats';
 import { defaultCompanyColor, normalizeCompanyColor } from '$lib/companyColors';
@@ -26,7 +27,16 @@ import type {
 	Project
 } from '$lib/types';
 
-export type Tab = 'pilotage' | 'calendrier' | 'contrats' | 'structures' | 'stats' | 'intermittence';
+export type Tab =
+	| 'pilotage'
+	| 'calendrier'
+	| 'contrats'
+	| 'structures'
+	| 'stats'
+	| 'intermittence'
+	| 'droits'
+	| 'impots'
+	| 'historique';
 
 export const tabs: { id: Tab; label: string }[] = [
 	{ id: 'pilotage', label: 'Dashboard' },
@@ -34,7 +44,10 @@ export const tabs: { id: Tab; label: string }[] = [
 	{ id: 'contrats', label: 'Contrats' },
 	{ id: 'structures', label: 'Structures' },
 	{ id: 'stats', label: 'Stats' },
-	{ id: 'intermittence', label: 'Intermittence' }
+	{ id: 'intermittence', label: 'Intermittence' },
+	{ id: 'droits', label: "Droits d'auteur" },
+	{ id: 'impots', label: 'Impôts' },
+	{ id: 'historique', label: 'Historique' }
 ];
 
 export const statuses: ContractStatus[] = ['Estimation', 'Signé', 'Payé'];
@@ -73,6 +86,9 @@ type DocumentImportPayload = DocumentUploadPayload & {
 	routedContractId: string;
 	documentIds: string[];
 	periodIds: string[];
+	congesIds?: string[];
+	royaltyIds?: string[];
+	franceTravailIds?: string[];
 	appliedFields: Partial<ContractFields>;
 };
 
@@ -218,6 +234,7 @@ export function createIntermittensState(initialData: AppData) {
 
 	if (
 		initialSnapshot.periods.length &&
+		!/^year:\d{4}$/.test(initialSnapshot.settings.activePeriodId) &&
 		!initialSnapshot.periods.some((period) => period.id === initialSnapshot.settings.activePeriodId)
 	) {
 		initialSnapshot.settings.activePeriodId = initialSnapshot.periods[0].id;
@@ -259,9 +276,7 @@ export function createIntermittensState(initialData: AppData) {
 	);
 	let selectedMonthInfo = $derived(
 		appData.monthlyInfos.find(
-			(info) =>
-				info.month === selectedMonth &&
-				(!appData.settings.activePeriodId || info.periodId === appData.settings.activePeriodId)
+			(info) => info.month === selectedMonth && monthlyInfoMatchesSelection(appData, info)
 		)
 	);
 	let selectedMonthStats = $derived(
@@ -291,7 +306,11 @@ export function createIntermittensState(initialData: AppData) {
 	function ensureMonthlyInfo(month: string): MonthlyInfo {
 		const periodId = appData.settings.activePeriodId;
 		let info = appData.monthlyInfos.find(
-			(item) => item.month === month && (!periodId || item.periodId === periodId)
+			(item) =>
+				item.month === month &&
+				(/^year:\d{4}$/.test(periodId)
+					? monthlyInfoMatchesSelection(appData, item)
+					: !periodId || item.periodId === periodId)
 		);
 
 		if (!info) {
@@ -311,11 +330,19 @@ export function createIntermittensState(initialData: AppData) {
 
 	function selectPeriod(periodId: string) {
 		appData.settings.activePeriodId = periodId;
-		const period = appData.periods.find((item) => item.id === periodId);
-		if (!period) return;
-		if (period.referenceStartDate) appData.settings.referenceStartDate = period.referenceStartDate;
-		if (period.dailyAllowance) appData.settings.minDailyAllowance = period.dailyAllowance;
-		ensureMonthlyInfo(selectedMonth);
+		const period = getActivePeriod(appData);
+		if (period && /^year:\d{4}$/.test(periodId)) {
+			if (
+				selectedMonth < period.indemnizationStartDate.slice(0, 7) ||
+				selectedMonth > period.anniversaryDate.slice(0, 7)
+			) {
+				selectedMonth = period.indemnizationStartDate.slice(0, 7);
+			}
+		} else {
+			if (period?.referenceStartDate)
+				appData.settings.referenceStartDate = period.referenceStartDate;
+			ensureMonthlyInfo(selectedMonth);
+		}
 		touch();
 	}
 
@@ -751,6 +778,8 @@ export function createIntermittensState(initialData: AppData) {
 		let periodsUpdated = 0;
 		let lastRoutedContractId = '';
 		let sawPeriodImport = false;
+		let sawTaxImport = false;
+		let sawRoyaltyImport = false;
 		const items: ContractImportFeedbackItem[] = [];
 
 		for (const [index, file] of files.entries()) {
@@ -838,6 +867,8 @@ export function createIntermittensState(initialData: AppData) {
 			}
 
 			if ((payload.periodIds ?? []).length) sawPeriodImport = true;
+			if (payload.congesIds?.length || payload.franceTravailIds?.length) sawTaxImport = true;
+			if (payload.royaltyIds?.length) sawRoyaltyImport = true;
 
 			const importedDocuments = payload.data.documents.filter((document) =>
 				(payload.documentIds ?? []).includes(document.id)
@@ -855,7 +886,16 @@ export function createIntermittensState(initialData: AppData) {
 				fileName: file.name,
 				status: 'success',
 				kind:
-					kinds.join(' + ') || ((payload.periodIds ?? []).length ? 'Notification ARE' : 'Document'),
+					kinds.join(' + ') ||
+					(payload.franceTravailIds?.length
+						? 'Courrier France Travail'
+						: payload.congesIds?.length
+							? 'Relevé Audiens'
+							: payload.royaltyIds?.length
+								? "Droits d'auteur"
+								: (payload.periodIds ?? []).length
+									? 'Notification ARE'
+									: 'Document'),
 				destination: routedContract
 					? `${
 							payload.createdContractId
@@ -864,7 +904,11 @@ export function createIntermittensState(initialData: AppData) {
 									? 'Contrat mis à jour'
 									: 'Contrat inchangé'
 						} · ${routedContract.title}`
-					: 'Intermittence mise à jour',
+					: payload.congesIds?.length || payload.franceTravailIds?.length
+						? 'Bilan fiscal mis à jour'
+						: payload.royaltyIds?.length
+							? "Droits d'auteur mis à jour"
+							: 'Intermittence mise à jour',
 				fields: importFieldLabels(detectedFields),
 				warnings: usefulImportWarnings(payload.analysis.notes ?? [])
 			});
@@ -877,6 +921,10 @@ export function createIntermittensState(initialData: AppData) {
 			activeTab = 'contrats';
 		} else if (sawPeriodImport) {
 			activeTab = 'intermittence';
+		} else if (sawTaxImport) {
+			activeTab = 'impots';
+		} else if (sawRoyaltyImport) {
+			activeTab = 'droits';
 		}
 
 		if (importedCount > 0) {

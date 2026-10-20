@@ -111,7 +111,6 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		current.settings.activePeriodId = period.id;
 
 		if (period.referenceStartDate) current.settings.referenceStartDate = period.referenceStartDate;
-		if (period.dailyAllowance) current.settings.minDailyAllowance = period.dailyAllowance;
 
 		return current;
 	});
