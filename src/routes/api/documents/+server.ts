@@ -394,6 +394,7 @@ async function proxyToRemote(
 	kind: DocumentKind,
 	createContract: boolean,
 	autoRoute: boolean,
+	preserveDocument: boolean,
 	file: File,
 	buffer: Buffer
 ) {
@@ -413,6 +414,7 @@ async function proxyToRemote(
 	if (contractId) body.set('contractId', contractId);
 	if (createContract) body.set('createContract', 'true');
 	if (autoRoute) body.set('autoRoute', 'true');
+	if (preserveDocument) body.set('preserveDocument', 'true');
 	body.set('kind', kind);
 	body.set(
 		'file',
@@ -464,12 +466,16 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 	const contractId = String(form.get('contractId') ?? '');
 	const createContract = String(form.get('createContract') ?? '') === 'true';
 	const autoRoute = String(form.get('autoRoute') ?? '') === 'true';
+	const preserveDocument = String(form.get('preserveDocument') ?? '') === 'true';
 	const file = form.get('file');
 
 	if (!contractId && !createContract && !autoRoute) error(400, 'Identifiant de contrat manquant.');
 	if (!(file instanceof File)) error(400, 'Fichier manquant.');
 
-	const kind = documentKindFromFileName(file.name, safeKind(form.get('kind')));
+	const requestedKind = safeKind(form.get('kind'));
+	const kind = preserveDocument
+		? requestedKind
+		: documentKindFromFileName(file.name, requestedKind);
 	const buffer = Buffer.from(await file.arrayBuffer());
 	const safeName = sanitizeFileName(file.name || 'document');
 	const newContractId = createId('contract');
@@ -482,13 +488,16 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 		kind,
 		createContract,
 		autoRoute,
+		preserveDocument,
 		file,
 		buffer
 	);
 	if (remotePayload) return json(remotePayload);
 
 	await mkdir(documentDir, { recursive: true });
-	const parts = await splitAndClassifyDocument(file.name, file.type, buffer, kind);
+	const parts = await splitAndClassifyDocument(file.name, file.type, buffer, kind, {
+		preserveDocument
+	});
 	const preparedDocuments: ContractDocument[] = [];
 	const preparedPeriods: IntermittencePeriod[] = [];
 	const preparedConges: CongesPayment[] = [];
@@ -505,20 +514,24 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 		await writeFile(path.join(documentDir, storedName), part.buffer);
 
 		// Fiscal payments must never create employment contracts or add qualifying hours.
-		const conges = analyzeCongesStatement(part.text);
+		const conges = preserveDocument ? undefined : analyzeCongesStatement(part.text);
 		if (conges) {
 			preparedConges.push({ ...conges, id, fileName: part.fileName, storedName });
 			notes.push('Relevé Audiens ajouté au bilan fiscal de son année de paiement.');
 			continue;
 		}
-		const royalty = analyzeRoyaltyStatement(part.text, part.fileName);
+		const royalty = preserveDocument
+			? undefined
+			: analyzeRoyaltyStatement(part.text, part.fileName);
 		if (royalty) {
 			preparedRoyalties.push({ ...royalty, id, fileName: part.fileName, storedName });
 			notes.push("Décompte ajouté aux droits d'auteur et au bilan fiscal.");
 			continue;
 		}
 
-		const letter = analyzeFranceTravailLetter(part.text, part.fileName);
+		const letter = preserveDocument
+			? undefined
+			: analyzeFranceTravailLetter(part.text, part.fileName);
 		if (letter) {
 			const { situation: _situation, ...document } = letter;
 			preparedFranceTravail.push({ ...document, id, storedName });
@@ -526,7 +539,7 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 			continue;
 		}
 
-		if (part.kind === 'Notification ARE') {
+		if (!preserveDocument && part.kind === 'Notification ARE') {
 			const period = analyzeAreNotification(part.text, {
 				id,
 				fileName: part.fileName,
@@ -646,7 +659,7 @@ async function importDocument({ request, url }: Parameters<RequestHandler>[0]) {
 				incomingSirets
 			);
 
-			if (employerRelationship === 'different') {
+			if (!preserveDocument && employerRelationship === 'different') {
 				notes.push(
 					'Employeur différent détecté: le document ne peut pas être rattaché au contrat sélectionné.'
 				);

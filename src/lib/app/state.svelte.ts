@@ -680,6 +680,7 @@ export function createIntermittensState(initialData: AppData) {
 		const body = new FormData();
 		body.set('contractId', contract.id);
 		body.set('autoRoute', 'true');
+		body.set('preserveDocument', 'true');
 		body.set('kind', kind);
 		body.set('file', file);
 

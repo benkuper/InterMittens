@@ -340,6 +340,39 @@ try {
 	assert.equal(parts[0].isSplit, false);
 	assert.deepEqual(parts[0].extractionNotes, []);
 
+	const paginatedContractPdf = await PDFDocument.create();
+	const paginatedContractFont = await paginatedContractPdf.embedFont(StandardFonts.Helvetica);
+	const paginatedContractFirstPage = paginatedContractPdf.addPage();
+	paginatedContractFirstPage.drawText(
+		"Page 1 / 2 Contrat de travail a duree determinee d'usage. Duree de l'engagement.",
+		{ font: paginatedContractFont, size: 10, x: 40, y: 760 }
+	);
+	const paginatedContractSecondPage = paginatedContractPdf.addPage();
+	paginatedContractSecondPage.drawText(
+		'Page 2 / 2 REMUNERATION RETRAITE ET CONGES PAYES. Cotisations a la caisse des Conges Spectacles. Fait en double exemplaire.',
+		{ font: paginatedContractFont, size: 10, x: 40, y: 760 }
+	);
+
+	const paginatedContractParts = await pdfParts.splitAndClassifyDocument(
+		'KUPERBERG Benjamin 05 au 0910.pdf',
+		'application/pdf',
+		Buffer.from(await paginatedContractPdf.save()),
+		'Autre'
+	);
+
+	assert.equal(
+		documentAnalysis.classifyDocumentKind(
+			'RETRAITE ET CONGES PAYES. Cotisations a la caisse des Conges Spectacles.',
+			'Autre'
+		),
+		'Congé Spectacle'
+	);
+	assert.equal(paginatedContractParts.length, 1);
+	assert.equal(paginatedContractParts[0].kind, 'Contrat');
+	assert.equal(paginatedContractParts[0].pageStart, 1);
+	assert.equal(paginatedContractParts[0].pageEnd, 2);
+	assert.equal(paginatedContractParts[0].isSplit, false);
+
 	const mixedPayrollPdf = await PDFDocument.create();
 	const mixedPayrollFont = await mixedPayrollPdf.embedFont(StandardFonts.Helvetica);
 	const payrollPage = mixedPayrollPdf.addPage();
@@ -355,10 +388,12 @@ try {
 		y: 760
 	});
 	const congePage = mixedPayrollPdf.addPage();
-	congePage.drawText(
-		"CERTIFICAT D'EMPLOI LES CONGES SPECTACLES DESTINE AU SALARIE",
-		{ font: mixedPayrollFont, size: 10, x: 40, y: 760 }
-	);
+	congePage.drawText("CERTIFICAT D'EMPLOI LES CONGES SPECTACLES DESTINE AU SALARIE", {
+		font: mixedPayrollFont,
+		size: 10,
+		x: 40,
+		y: 760
+	});
 
 	const mixedPayrollParts = await pdfParts.splitAndClassifyDocument(
 		'2026_09 - Paie KUPERBERG.pdf',
@@ -379,6 +414,31 @@ try {
 			[3, 3]
 		]
 	);
+
+	const forcedContractParts = await pdfParts.splitAndClassifyDocument(
+		'2026_09 - Paie KUPERBERG.pdf',
+		'application/pdf',
+		Buffer.from(await mixedPayrollPdf.save()),
+		'Contrat',
+		{ preserveDocument: true }
+	);
+
+	assert.equal(forcedContractParts.length, 1);
+	assert.equal(forcedContractParts[0].kind, 'Contrat');
+	assert.equal(forcedContractParts[0].pageStart, 1);
+	assert.equal(forcedContractParts[0].pageEnd, 3);
+	assert.equal(forcedContractParts[0].isSplit, false);
+
+	const forcedUnreadableParts = await pdfParts.splitAndClassifyDocument(
+		'unreadable.pdf',
+		'application/pdf',
+		Buffer.from('BULLETIN DE PAIE NET A PAYER'),
+		'Contrat',
+		{ preserveDocument: true }
+	);
+	assert.equal(forcedUnreadableParts.length, 1);
+	assert.equal(forcedUnreadableParts[0].kind, 'Contrat');
+	assert.equal(forcedUnreadableParts[0].isSplit, false);
 
 	const prefixedPdf = await PDFDocument.create();
 	const prefixedFirstPage = prefixedPdf.addPage();

@@ -108,6 +108,18 @@ function classifyWithFileName(text: string, fileName: string, fallbackKind: Docu
 	return classifyDocumentKind(text, documentKindFromFileName(fileName, fallbackKind));
 }
 
+function hasContinuousPagination(pageTexts: string[], pageCount: number) {
+	if (pageCount <= 1 || pageTexts.length < pageCount) return false;
+
+	return pageTexts.slice(0, pageCount).every((text, index) => {
+		const paginationPattern = /\bpage\s*(\d{1,4})\s*(?:\/|sur)\s*(\d{1,4})\b/gi;
+
+		return [...text.matchAll(paginationPattern)].some(
+			(match) => Number(match[1]) === index + 1 && Number(match[2]) === pageCount
+		);
+	});
+}
+
 async function createPdfFromPages(source: PDFDocument, pageIndexes: number[]) {
 	const output = await PDFDocument.create();
 	const pages = await output.copyPages(source, pageIndexes);
@@ -119,7 +131,8 @@ export async function splitAndClassifyDocument(
 	fileName: string,
 	mimeType: string,
 	buffer: Buffer,
-	fallbackKind: DocumentKind
+	fallbackKind: DocumentKind,
+	options: { preserveDocument?: boolean } = {}
 ): Promise<DocumentPart[]> {
 	const lowerName = fileName.toLowerCase();
 	const lowerType = mimeType.toLowerCase();
@@ -128,7 +141,9 @@ export async function splitAndClassifyDocument(
 		const text = await extractTextFromBuffer(fileName, mimeType, buffer);
 		return [
 			{
-				kind: classifyWithFileName(text, fileName, fallbackKind),
+				kind: options.preserveDocument
+					? fallbackKind
+					: classifyWithFileName(text, fileName, fallbackKind),
 				buffer,
 				text,
 				fileName,
@@ -149,10 +164,10 @@ export async function splitAndClassifyDocument(
 		const fullKind = explicitKind ?? classifyWithFileName(fullText, fileName, fallbackKind);
 		const allPageIndexes = Array.from({ length: pageCount }, (_, index) => index);
 
-		if (pageCount <= 1 || explicitKind) {
+		if (pageCount <= 1 || explicitKind || options.preserveDocument) {
 			return [
 				{
-					kind: fullKind,
+					kind: options.preserveDocument ? fallbackKind : fullKind,
 					buffer,
 					text: fullText,
 					fileName,
@@ -177,10 +192,14 @@ export async function splitAndClassifyDocument(
 		);
 
 		const hasSeveralKinds = new Set(pages.map((page) => page.kind)).size > 1;
-		if (!hasSeveralKinds) {
+		const isPaginatedContract =
+			fullKind === 'Contrat' &&
+			pages[0]?.kind === 'Contrat' &&
+			hasContinuousPagination(pageTexts, pageCount);
+		if (!hasSeveralKinds || isPaginatedContract) {
 			return [
 				{
-					kind: pages[0]?.kind ?? fullKind,
+					kind: isPaginatedContract ? fullKind : (pages[0]?.kind ?? fullKind),
 					buffer,
 					text: fullText,
 					fileName,
@@ -225,7 +244,9 @@ export async function splitAndClassifyDocument(
 		const text = extractPdfTextFromBuffer(buffer);
 		return [
 			{
-				kind: classifyWithFileName(text, fileName, fallbackKind),
+				kind: options.preserveDocument
+					? fallbackKind
+					: classifyWithFileName(text, fileName, fallbackKind),
 				buffer,
 				text,
 				fileName,
